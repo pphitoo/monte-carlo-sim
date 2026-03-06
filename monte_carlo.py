@@ -146,10 +146,8 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         v3_c = np.ones(N) * initial_cap * 0.5; v3_b = np.ones(N) * initial_cap * 0.5
         v4_b = np.ones(N) * initial_cap * 0.5; v4_l = np.ones(N) * initial_cap * 0.5
         
-        # 🌟 策略 5 升級：100% 買大盤，沒有現金
         v5_b = np.ones(N) * initial_cap
         v5_l = np.zeros(N)
-        # 紀錄階梯式抄底的目前層級
         trig_level = np.zeros(N) 
         
         v6_lumpsum = np.ones(N) * total_cap 
@@ -158,7 +156,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         for d in range(days):
             rb, rl = m_B[d], m_L[d]
             
-            # 1. 結算當日變化
             v1_base *= rb
             v2_lev *= rl
             
@@ -169,36 +166,28 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             
             v5_b *= rb; v5_l *= rl
             
-            # 使用時空旅人（純大盤）追蹤絕對的歷史高點與回撤
             ath = np.maximum(ath, v6_lumpsum) 
             dd = v6_lumpsum / ath
             
-            # 🌟 策略 5 階梯式觸發邏輯：計算目前處於第幾個跌幅級距
             current_level = np.floor((1 - dd) / drop_threshold)
-            # 當大盤創歷史新高時，重新計算級距
             trig_level[dd == 1] = 0 
             
-            # 如果跌落到新的深淵級別 (例如從跌 20% 變成跌 40%)
             cond = current_level > trig_level 
             if np.any(cond):
-                # 賣掉設定比例的大盤，換成 2 倍槓桿
                 move = v5_b[cond] * transfer_pct
                 v5_b[cond] -= move
                 v5_l[cond] += move
-                trig_level[cond] = current_level[cond] # 紀錄已觸發的級距
+                trig_level[cond] = current_level[cond] 
 
             v6_lumpsum *= rb
 
-            # 2. 注入外部的分期資金
             if d % dca_interval == 0 and (d // dca_interval) < dca_parts:
                 v1_base += periodic_cap
                 v2_lev += periodic_cap
                 v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
                 v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
-                # 🌟 策略 5 閒錢一律買入大盤
                 v5_b += periodic_cap 
 
-        # 整理成表格
         df_res = pd.DataFrame({
             '1. 一般散戶 (100% 基準)': v1_base,
             '2. 激進賭徒 (100% 槓桿)': v2_lev,
@@ -211,9 +200,37 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     df_res_van = df_res / 10000
 
     # ==========================================
-    # 5. 產出報表
+    # 5. 產出報表與參數看板
     # ==========================================
-    st.success(f"✅ 成功完成 {sim_years} 年蒙地卡羅模擬！總投入成本為：{total_capital_wan:.1f} 萬。")
+    st.success(f"✅ 成功完成 {sim_years} 年蒙地卡羅模擬！")
+    
+    # 🌟 新增：參數設定紀錄看板 (三欄式)
+    st.markdown("### 📋 本次模擬參數設定")
+    p_col1, p_col2, p_col3 = st.columns(3)
+    
+    with p_col1:
+        st.markdown("**💰 資金佈局**")
+        st.write(f"- 初期單筆：**{initial_input_wan} 萬**")
+        st.write(f"- 分期投入：**{periodic_input_wan} 萬** (共 {dca_parts} 次)")
+        st.write(f"- 總成本線：**{total_capital_wan:.1f} 萬**")
+        
+    with p_col2:
+        st.markdown("**⏳ 時間與頻率**")
+        st.write(f"- 模擬年限：**{sim_years} 年**")
+        st.write(f"- 買入頻率：**每 {dca_interval_months} 個月**")
+        st.write(f"- 宇宙數量：**{N} 次**")
+        
+    with p_col3:
+        st.markdown("**🛠️ 進階策略設定**")
+        if "歷史" in engine:
+            st.write(f"- 回測標的：**{ticker}**")
+            st.write(f"- 歷史區間：**{start_date} ~ {end_date}**")
+        else:
+            st.write(f"- 預期報酬/波動：**{mu_base*100:.1f}% / {sig_base*100:.1f}%**")
+        st.write(f"- 槓桿設定：**{lev_mult}x** (耗損 {drag_annual*100:.1f}%)")
+        st.write(f"- 危機入市：**每跌 {drop_threshold*100:.0f}% 換 {transfer_pct*100:.0f}%**")
+    
+    st.divider() # 視覺分隔線
     
     stats = []
     for col in df_res_van.columns:
