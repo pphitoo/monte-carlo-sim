@@ -30,8 +30,9 @@ initial_capital = st.sidebar.number_input(
     "初始資金 (元)", min_value=100000, value=2000000, step=100000)
 sim_years = st.sidebar.slider("⏳ 獨立設定：要模擬未來幾年？", min_value=1, max_value=30,
                               value=10, help="這決定了平行宇宙的長度。你可以拿短短幾年的歷史碎片，重複抽樣拼湊出 10 年或 20 年的極端未來。")
+# ⚠️ 修正上限為 10000，保護雲端伺服器記憶體不崩潰
 N = st.sidebar.slider("模擬次數 (平行宇宙)", min_value=1000,
-                      max_value=20000, value=10000, step=1000)
+                      max_value=10000, value=5000, step=1000)
 st.sidebar.divider()
 
 # 模組 3: 引擎專屬參數
@@ -86,7 +87,16 @@ def get_hist_data(tkr, start, end):
     data = yf.download(tkr, start=start, end=end, progress=False)
     if data.empty:
         return None
-    return data['Close'].pct_change().dropna().values.flatten()
+
+    # 🌟 強力修正：如果沒有 Adj Close，我們自己從 Close 和 Dividends 手動計算還原權息
+    # 這樣就不用怕 Yahoo 不給數據了！
+    if 'Adj Close' in data.columns:
+        return data['Adj Close'].pct_change().dropna().values.flatten()
+    else:
+        # 如果沒有調整數據，我們用 (Close + Dividends) / Previous_Close 來算真實報酬
+        data['Returns'] = (
+            data['Close'] + data.get('Dividends', 0)) / data['Close'].shift(1) - 1
+        return data['Returns'].dropna().values.flatten()
 
 
 # ==========================================
@@ -133,9 +143,7 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
             Z = np.random.standard_t(
                 df=df_t, size=(total_days, N)) * np.sqrt(1/3)
 
-            # 🛑 【美股專用防爆機制】：不限制漲跌幅%，而是限制統計學上的「極端亂數值」
-            # 容許最大 +/- 25 個標準差的黑天鵝 (約等同大盤單日暴漲或暴跌 25~30%，超越 1987 黑色星期一)
-            # 這樣既保留了美股沒有上下限的特性，又防堵了數學上的指數爆炸
+            # 美股專用防爆機制：容許最大 +/- 25 個標準差的黑天鵝
             Z = np.clip(Z, -25, 25)
 
             mu_lev = mu_base * lev_mult
@@ -147,16 +155,13 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
             log_ret_lev = (mu_lev - 0.5 * sig_lev**2) * dt + \
                 sig_lev * np.sqrt(dt) * Z - daily_drag
 
-            # 轉換回真實每日報酬率 (完全沒有加上 10% 或 20% 的硬性限制！)
+            # 轉換回真實每日報酬率
             sim_ret_base = np.exp(log_ret_base) - 1
             sim_ret_lev = np.exp(log_ret_lev) - 1
 
-        # 轉換為乘數
-        sim_mult_base = 1 + sim_ret_base
-
-        # 轉換為乘數
-        sim_mult_base = 1 + sim_ret_base
-        sim_mult_lev = 1 + sim_ret_lev
+        # 🌟 修正點 2：加入「破產防線」，強制資產乘數不可小於 0 (最多歸零)
+        sim_mult_base = np.maximum(0, 1 + sim_ret_base)
+        sim_mult_lev = np.maximum(0, 1 + sim_ret_lev)
 
         price_base = np.cumprod(sim_mult_base, axis=0)
         price_base = np.vstack([np.ones(N), price_base])
@@ -192,7 +197,11 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
             V5_B *= r_B
             V5_L *= r_L
             price_ATH_base = np.maximum(price_ATH_base, price_base[d])
-            drawdown = price_base[d] / price_ATH_base
+
+            # 🌟 修正點 3：加入 np.errstate 避免資產歸零時產生「除以 0」的運算錯誤
+            with np.errstate(divide='ignore', invalid='ignore'):
+                drawdown = np.where(price_ATH_base > 0,
+                                    price_base[d] / price_ATH_base, 0)
 
             triggered[drawdown == 1.0] = False
             cond = (drawdown <= (1.0 - drop_threshold)) & (~triggered)
