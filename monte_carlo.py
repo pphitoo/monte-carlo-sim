@@ -31,12 +31,15 @@ min_date = datetime(2000, 1, 1).date()
 # ==========================================
 # 1. 網頁標題與說明書面板 (Expander)
 # ==========================================
-st.set_page_config(page_title="量化回測實驗室", layout="wide", initial_sidebar_state="expanded")
-st.title("🔬 終極量化回測實驗室 (雙引擎架構)")
-st.markdown("自由切換「歷史區塊抽樣」與「GBM 肥尾數學模型」，分析「一次投入」與「分批買入」在不同環境下的勝率。數據已自動換算為**「萬 (10k TWD)」**單位。")
+st.set_page_config(page_title="蒙地卡羅回測實驗室", layout="wide", initial_sidebar_state="expanded")
+st.title("🔬 蒙地卡羅量化回測實驗室 (雙引擎架構)")
+st.markdown("基於**蒙地卡羅模擬 (Monte Carlo Simulation)**，自由切換「歷史區塊抽樣」與「GBM 肥尾數學模型」，分析「一次投入」與「分批買入」在不同平行宇宙下的勝率與極端風險。數據已自動換算為**「萬 (10k TWD)」**單位。")
 
-with st.expander("📖 實驗室使用說明與核心運算公式 (點擊展開)", expanded=False):
+with st.expander("📖 蒙地卡羅實驗室使用說明與核心公式 (點擊展開)", expanded=False):
     st.markdown("""
+    ### 🎲 關於蒙地卡羅模擬 (Monte Carlo Simulation)
+    傳統的回測只能告訴你「過去發生的那唯一一次結果」。而**蒙地卡羅模擬**透過引入隨機性，創造出數千甚至數萬種「未來可能發生的平行宇宙」，幫助我們找出策略在最極端（悲觀 5%）與最理想（樂觀 5%）狀態下的真實表現。
+
     ### ⚙️ 雙引擎運算模型
     本系統提供兩種平行宇宙生成方式，幫助你進行投資策略的壓力測試：
     
@@ -65,7 +68,7 @@ with st.expander("📖 實驗室使用說明與核心運算公式 (點擊展開)
 
     ### 📈 投資組合策略說明
     系統逐日結算以下 6 種策略，並統整於最終報表：
-    * **策略 1 / 4**：期初將資金 $100\\%$ 投入槓桿標的或基準標的。
+    * **策略 1 (單筆全下槓桿)** 與 **策略 4 (單筆全下基準)**：這就是經典的「一次性投入 (Lump-sum)」。在回測的第一天，直接把 100% 資金全部買進槓桿標的 (策略 1) 或基準標的 (策略 4)，之後死抱不放 (Buy & Hold)。
     * **策略 2 (50/50 持有)**：$50\\%$ 現金 (享 $1\\%$ 活存利率) + $50\\%$ 基準標的，**買入後不動作**。
     * **策略 3 (50/50 再平衡)**：同上，但**每 252 個交易日 (約一年) 強制重新平衡**回 50/50 比例。
     * **策略 5 (跌深抄底)**：每日追蹤基準標的之歷史最高點 (ATH)，當回落比例大於設定的 $Drop_{threshold}$ 時，觸發單次資金轉移，將現金池比例轉入槓桿標的。
@@ -124,7 +127,7 @@ def get_hist_data(tkr, start, end):
 # 4. 核心運算區塊
 # ==========================================
 if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_width=True):
-    with st.spinner('⚙️ 正在建構平行宇宙與運算策略...'):
+    with st.spinner('⚙️ 正在進行蒙地卡羅模擬與運算策略...'):
         days = sim_years * 252
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
@@ -199,7 +202,7 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
     # ==========================================
     # 5. 產出報表
     # ==========================================
-    st.success("成功完成 5,000 次平行宇宙模擬！數據已換算為**「萬」**為單位。")
+    st.success("✅ 成功完成蒙地卡羅模擬！數據已換算為**「萬」**為單位。")
     
     stats = []
     for col in df_res_van.columns:
@@ -214,7 +217,7 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
         })
     st.dataframe(pd.DataFrame(stats).set_index('策略'), use_container_width=True)
     
-    st.subheader(f"📈 終值分佈密度圖 ({sim_years} 年後 / 萬為單位)")
+    st.subheader(f"📈 蒙地卡羅終值分佈密度圖 ({sim_years} 年後 / 萬為單位)")
     fig, ax = plt.subplots(figsize=(12, 6))
     
     for col in df_res_van.columns:
@@ -222,8 +225,8 @@ if st.sidebar.button("🚀 開始模擬運算", type="primary", use_container_wi
     
     ax.axvline(initial_capital_van, color='red', linestyle='--', label='Initial Capital', zorder=10)
     
-    title_prefix = "Historical Block" if "歷史" in engine else "GBM Fat-Tail"
-    ax.set_title(f'{sim_years}-Year Final Asset Distribution ({title_prefix} / 10k TWD)', fontsize=14)
+    title_prefix = "Historical Block Bootstrapping" if "歷史" in engine else "GBM Fat-Tail"
+    ax.set_title(f'Monte Carlo Simulation: {sim_years}-Year Final Asset Distribution ({title_prefix})', fontsize=14)
     ax.set_xlabel('Final Asset Value (萬 TWD)', fontsize=12) 
     ax.set_ylabel('Density', fontsize=12)
 
