@@ -48,7 +48,7 @@ with st.expander("📖 實驗室說明與 6 大情境策略 (點擊展開)", exp
     * **策略 2. 激進賭徒 (100% 槓桿)**：手邊的錢跟每個月的閒錢，全部拿去買 2 倍槓桿。追求極致報酬，但也承擔極致風險。
     * **策略 3. 保守定存 (50/50 持有)**：手邊的錢跟每個月的閒錢，都只拿一半買大盤，另一半放銀行定存 (1% 利率) 絕對不碰。
     * **策略 4. 紀律經理 (50大盤/50槓桿 再平衡)**：手邊的錢跟閒錢，一半買 1 倍大盤，一半買 2 倍槓桿。每年底會強制「重新平衡」，把賺比較多的賣掉，補給另一個，維持 1:1 的完美比例。
-    * **策略 5. 老謀深算 (跌深抄底)**：手邊的錢留一半放銀行等崩盤，等大盤跌到設定的滿足點，就拿存款去抄底「2 倍槓桿」；分期閒錢則安分買大盤。
+    * **策略 5. 危機入市 (滿倉階梯換槓桿)**：不留現金，初期與分期資金 **100% 全買大盤**。當大盤每跌破一個設定級距 (例如跌 20%、40%)，就賣掉手上設定比例的大盤，換成「2 倍槓桿」來放大反彈力道；大盤創歷史新高時重置觸發器。
     * **策略 6. 時空旅人 (神明對照組)**：向神明借未來所有的錢，第一天直接「歐印 (All-in)」大盤。用來測試「資金越早進場越好」的終極對照組。
     """)
 
@@ -64,15 +64,12 @@ initial_input_wan = st.sidebar.number_input("🏦 初期單筆資金 (萬)", min
 periodic_input_wan = st.sidebar.number_input("📥 每次分期投入資金 (萬)", min_value=0.0, value=10.0, step=1.0)
 dca_parts = st.sidebar.slider("分批次數", min_value=1, max_value=360, value=12)
 
-# 🌟 這裡改成以「月」為單位的滑桿
 dca_interval_months = st.sidebar.slider("買入頻率 (月)", min_value=1, max_value=12, value=1)
-# 🌟 背景自動將月份換算為交易日 (1個月約 = 21個交易日)
 dca_interval = dca_interval_months * 21 
 
 sim_years = st.sidebar.slider("⏳ 模擬未來幾年？", min_value=1, max_value=50, value=10)
 N = st.sidebar.slider("模擬次數 (平行宇宙)", min_value=1000, max_value=10000, value=5000)
 
-# 自動計算總成本
 total_capital_wan = initial_input_wan + (periodic_input_wan * dca_parts)
 initial_cap = initial_input_wan * 10000
 periodic_cap = periodic_input_wan * 10000
@@ -95,8 +92,8 @@ else:
 st.sidebar.header("🛠️ 槓桿與抄底微調")
 lev_mult = st.sidebar.number_input("槓桿倍數", 1.0, 5.0, 2.0, 0.5)
 drag_annual = st.sidebar.slider("槓桿標的 年化耗損 (%)", 0.0, 10.0, 1.5) / 100
-drop_threshold = st.sidebar.slider("策略 5 抄底觸發 (%)", 5, 50, 20) / 100
-transfer_pct = st.sidebar.slider("策略 5 轉入比例 (%)", 10, 100, 20) / 100
+drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20) / 100
+transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
 # 3. 資料下載快取
@@ -144,16 +141,19 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         
         m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
 
-        # === 策略變數初始化 (對齊 1 到 6 的人設順序) ===
         v1_base = np.ones(N) * initial_cap
         v2_lev = np.ones(N) * initial_cap
         v3_c = np.ones(N) * initial_cap * 0.5; v3_b = np.ones(N) * initial_cap * 0.5
         v4_b = np.ones(N) * initial_cap * 0.5; v4_l = np.ones(N) * initial_cap * 0.5
-        v5_c = np.ones(N) * initial_cap * 0.5; v5_b = np.ones(N) * initial_cap * 0.5; v5_l = np.zeros(N)
-        v6_lumpsum = np.ones(N) * total_cap 
         
+        # 🌟 策略 5 升級：100% 買大盤，沒有現金
+        v5_b = np.ones(N) * initial_cap
+        v5_l = np.zeros(N)
+        # 紀錄階梯式抄底的目前層級
+        trig_level = np.zeros(N) 
+        
+        v6_lumpsum = np.ones(N) * total_cap 
         ath = np.ones(N) 
-        trig = np.zeros(N, dtype=bool)
 
         for d in range(days):
             rb, rl = m_B[d], m_L[d]
@@ -167,26 +167,36 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             v4_b *= rb; v4_l *= rl
             if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
             
-            v5_c *= cash_growth; v5_b *= rb; v5_l *= rl
-            ath = np.maximum(ath, v6_lumpsum/total_cap) 
-            dd = (v6_lumpsum/total_cap)/ath
-            trig[dd == 1] = False 
+            v5_b *= rb; v5_l *= rl
             
-            cond = (dd <= 1-drop_threshold) & (~trig) 
+            # 使用時空旅人（純大盤）追蹤絕對的歷史高點與回撤
+            ath = np.maximum(ath, v6_lumpsum) 
+            dd = v6_lumpsum / ath
+            
+            # 🌟 策略 5 階梯式觸發邏輯：計算目前處於第幾個跌幅級距
+            current_level = np.floor((1 - dd) / drop_threshold)
+            # 當大盤創歷史新高時，重新計算級距
+            trig_level[dd == 1] = 0 
+            
+            # 如果跌落到新的深淵級別 (例如從跌 20% 變成跌 40%)
+            cond = current_level > trig_level 
             if np.any(cond):
-                move = v5_c[cond]*transfer_pct
-                v5_c[cond]-=move; v5_l[cond]+=move; trig[cond]=True 
+                # 賣掉設定比例的大盤，換成 2 倍槓桿
+                move = v5_b[cond] * transfer_pct
+                v5_b[cond] -= move
+                v5_l[cond] += move
+                trig_level[cond] = current_level[cond] # 紀錄已觸發的級距
 
             v6_lumpsum *= rb
 
-            # 2. 注入外部的分期資金 (使用換算過後的 dca_interval)
+            # 2. 注入外部的分期資金
             if d % dca_interval == 0 and (d // dca_interval) < dca_parts:
                 v1_base += periodic_cap
                 v2_lev += periodic_cap
                 v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
                 v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
+                # 🌟 策略 5 閒錢一律買入大盤
                 v5_b += periodic_cap 
-                # v6_lumpsum 不加碼
 
         # 整理成表格
         df_res = pd.DataFrame({
@@ -194,7 +204,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             '2. 激進賭徒 (100% 槓桿)': v2_lev,
             '3. 保守定存 (50/50 持有)': v3_c + v3_b,
             '4. 紀律經理 (50大盤/50槓桿 再平衡)': v4_b + v4_l,
-            '5. 老謀深算 (跌深抄底)': v5_c + v5_b + v5_l,
+            '5. 危機入市 (滿倉階梯換槓桿)': v5_b + v5_l,
             '6. 時空旅人 (總成本首日全下)': v6_lumpsum
         })
 
