@@ -10,33 +10,13 @@ import os
 import platform
 
 # ==========================================
-# 0. 字體設定與日期解封 (暴力下載終極解法)
+# 0. 字體設定與日期解封 (Streamlit Cloud 專用版)
 # ==========================================
-import os
-import urllib.request
-import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
 from datetime import datetime
 
-# 1. 自動下載 Google Noto Sans TC 繁體中文字體
-font_url = "https://github.com/google/fonts/raw/main/ofl/notosanstc/NotoSansTC-Regular.ttf"
-font_path = "NotoSansTC-Regular.ttf"
-
-# 如果當前目錄沒有這個字體檔，就自動下載
-if not os.path.exists(font_path):
-    try:
-        urllib.request.urlretrieve(font_url, font_path)
-    except Exception as e:
-        pass # 如果斷網下載失敗就跳過
-
-# 2. 強制 Matplotlib 載入並使用這套字體
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    font_prop = fm.FontProperties(fname=font_path)
-    plt.rcParams['font.family'] = font_prop.get_name()
-else:
-    # 備用盲猜方案
-    plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'PingFang TC', 'SimHei', 'Arial Unicode MS']
-
+# 直接呼叫透過 packages.txt 安裝的系統級開源中文字體
+plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC', 'Noto Sans CJK JP', 'Microsoft JhengHei', 'PingFang TC']
 plt.rcParams['axes.unicode_minus'] = False  # 確保負號正常顯示
 
 today = datetime.now().date()
@@ -414,4 +394,5 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
 
 else:
     st.info("👈 防呆機制與定存機會成本已上線！再也不會出現幽靈本金了。")
+
 
