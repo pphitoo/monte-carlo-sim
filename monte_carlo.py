@@ -105,17 +105,15 @@ def get_hist_data(tkr, start, end):
 # 4. 核心運算區塊
 # ==========================================
 if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_width=True):
-    with st.spinner(f'⚙️ 正在根據你的彈性資金流進行平行宇宙運算...'):
+    with st.spinner(f'⚙️ 正在進行第一階段平行宇宙運算...'):
         days = sim_years * 252
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
         
         sim_ret_base = np.zeros((days, N))
         raw_hist_series = None
-        
-        # 🌟 C 計劃 (上帝視角)：準備存放日期與區塊編號的陣列
-        u1_dates = np.empty(days, dtype=object)
-        u1_blocks = np.empty(days, dtype=object)
+        raw_dates = None
+        indices = None
         
         if "歷史" in engine:
             raw_hist_series = get_hist_data(ticker, start_date, end_date)
@@ -124,29 +122,19 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 st.stop()
             
             rets = raw_hist_series.values.flatten()
-            raw_dates = raw_hist_series.index.strftime('%Y-%m-%d').values # 抽出真實歷史日期字串
-            
+            raw_dates = raw_hist_series.index.strftime('%Y-%m-%d').values
             indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
             
             for b in range(indices.shape[0]):
                 starts = indices[b,:]
-                # 針對第 1 號宇宙 (Index 0) 紀錄日期與區塊
-                u1_start_idx = indices[b, 0] 
-                
                 for i in range(block_size):
                     d_idx = b * block_size + i
                     if d_idx < days: 
                         sim_ret_base[d_idx, :] = rets[starts + i]
-                        # 紀錄第 1 號宇宙的軌跡
-                        u1_dates[d_idx] = raw_dates[u1_start_idx + i]
-                        u1_blocks[d_idx] = f"Block #{b+1}"
         else:
             Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -15, 15)
             log_ret_base = (mu_base - 0.5 * sig_base**2) * dt + sig_base * np.sqrt(dt) * Z
             sim_ret_base = np.exp(log_ret_base) - 1
-            # 數學模型沒有真實歷史日期
-            u1_dates[:] = "N/A (數學模型)"
-            u1_blocks[:] = "N/A (數學模型)"
             
         sim_ret_lev = (sim_ret_base * lev_mult) - (drag_annual/252)
         m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
@@ -159,21 +147,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         trig_level = np.zeros(N) 
         v6_lumpsum = np.ones(N) * total_cap 
         ath = np.ones(N) 
-
-        # 🌟 建立帶有「歷史對應日期」與「區塊編號」的追蹤字典
-        u1_history = {
-            'Day': np.arange(1, days + 1),
-            '抽樣區塊編號': u1_blocks,
-            '歷史對應日期': u1_dates,
-            '大盤單日報酬': sim_ret_base[:, 0],
-            '槓桿單日報酬': sim_ret_lev[:, 0],
-            '1. 一般散戶': np.zeros(days),
-            '2. 激進賭徒': np.zeros(days),
-            '3. 保守定存': np.zeros(days),
-            '4. 紀律經理': np.zeros(days),
-            '5. 危機入市': np.zeros(days),
-            '6. 時空旅人': np.zeros(days),
-        }
 
         for d in range(days):
             rb, rl = m_B[d], m_L[d]
@@ -205,13 +178,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
                 v5_b += periodic_cap 
 
-            u1_history['1. 一般散戶'][d] = v1_base[0] / 10000
-            u1_history['2. 激進賭徒'][d] = v2_lev[0] / 10000
-            u1_history['3. 保守定存'][d] = (v3_c[0] + v3_b[0]) / 10000
-            u1_history['4. 紀律經理'][d] = (v4_b[0] + v4_l[0]) / 10000
-            u1_history['5. 危機入市'][d] = (v5_b[0] + v5_l[0]) / 10000
-            u1_history['6. 時空旅人'][d] = v6_lumpsum[0] / 10000
-
         df_res = pd.DataFrame({
             '1. 一般散戶 (100% 基準)': v1_base,
             '2. 激進賭徒 (100% 槓桿)': v2_lev,
@@ -221,6 +187,99 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             '6. 時空旅人 (總成本首日全下)': v6_lumpsum
         })
         df_res_van = df_res / 10000
+
+    # ==========================================
+    # 🌟 4.5 階段：捕捉五大代表性宇宙的逐日軌跡
+    # ==========================================
+    with st.spinner(f'🕵️ 正在回放並記錄 5 大代表性宇宙的逐日軌跡...'):
+        # 使用「策略 1」作為大盤標準來排名
+        final_vals = v1_base
+        sorted_args = np.argsort(final_vals)
+        
+        target_indices = [
+            sorted_args[0],                   # Worst
+            sorted_args[int(N * 0.25)],       # Q1
+            sorted_args[int(N * 0.50)],       # Median
+            sorted_args[int(N * 0.75)],       # Q3
+            sorted_args[-1]                   # Best
+        ]
+        target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
+
+        # 只抽取出這 5 個宇宙的報酬率矩陣
+        m_B_sub = m_B[:, target_indices]
+        m_L_sub = m_L[:, target_indices]
+        
+        # 初始化 5 個宇宙的次級變數
+        v1_s = np.ones(5) * initial_cap
+        v2_s = np.ones(5) * initial_cap
+        v3_c_s = np.ones(5) * initial_cap * 0.5; v3_b_s = np.ones(5) * initial_cap * 0.5
+        v4_b_s = np.ones(5) * initial_cap * 0.5; v4_l_s = np.ones(5) * initial_cap * 0.5
+        v5_b_s = np.ones(5) * initial_cap; v5_l_s = np.zeros(5)
+        trig_lvl_s = np.zeros(5)
+        v6_s = np.ones(5) * total_cap
+        ath_s = np.ones(5)
+        
+        # 準備記錄矩陣
+        hist_v1 = np.zeros((days, 5))
+        hist_v2 = np.zeros((days, 5))
+        hist_v3 = np.zeros((days, 5))
+        hist_v4 = np.zeros((days, 5))
+        hist_v5 = np.zeros((days, 5))
+        hist_v6 = np.zeros((days, 5))
+
+        # 第二次極速迴圈 (只跑 5 筆資料)
+        for d in range(days):
+            rb, rl = m_B_sub[d], m_L_sub[d]
+            
+            v1_s *= rb
+            v2_s *= rl
+            v3_c_s *= cash_growth; v3_b_s *= rb
+            v4_b_s *= rb; v4_l_s *= rl
+            if (d+1)%252==0: v4_b_s, v4_l_s = (v4_b_s+v4_l_s)*0.5, (v4_b_s+v4_l_s)*0.5
+            v5_b_s *= rb; v5_l_s *= rl
+            
+            ath_s = np.maximum(ath_s, v6_s) 
+            dd = v6_s / ath_s
+            current_level = np.floor((1 - dd) / drop_threshold)
+            trig_lvl_s[dd == 1] = 0 
+            cond = current_level > trig_lvl_s 
+            if np.any(cond):
+                move = v5_b_s[cond] * transfer_pct
+                v5_b_s[cond] -= move
+                v5_l_s[cond] += move
+                trig_lvl_s[cond] = current_level[cond] 
+
+            v6_s *= rb
+
+            if d % dca_interval == 0 and (d // dca_interval) < dca_parts:
+                v1_s += periodic_cap
+                v2_s += periodic_cap
+                v3_c_s += periodic_cap * 0.5; v3_b_s += periodic_cap * 0.5
+                v4_b_s += periodic_cap * 0.5; v4_l_s += periodic_cap * 0.5
+                v5_b_s += periodic_cap 
+
+            hist_v1[d] = v1_s / 10000
+            hist_v2[d] = v2_s / 10000
+            hist_v3[d] = (v3_c_s + v3_b_s) / 10000
+            hist_v4[d] = (v4_b_s + v4_l_s) / 10000
+            hist_v5[d] = (v5_b_s + v5_l_s) / 10000
+            hist_v6[d] = v6_s / 10000
+
+        # 重建 5 大宇宙的日期與區塊標籤
+        sub_dates = np.empty((days, 5), dtype=object)
+        sub_blocks = np.empty((days, 5), dtype=object)
+        if "歷史" in engine:
+            for col, og_idx in enumerate(target_indices):
+                for b in range(indices.shape[0]):
+                    start = indices[b, og_idx]
+                    for i in range(block_size):
+                        d_idx = b * block_size + i
+                        if d_idx < days:
+                            sub_dates[d_idx, col] = raw_dates[start + i]
+                            sub_blocks[d_idx, col] = f"Block #{b+1}"
+        else:
+            sub_dates[:] = "N/A"
+            sub_blocks[:] = "N/A"
 
     # ==========================================
     # 5. 產出報表與參數看板
@@ -281,30 +340,9 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     st.pyplot(fig)
 
     # ==========================================
-    # 🌟 C 計劃：資料與邏輯驗證專區
+    # 🌟 C 計劃：資料與邏輯驗證專區 (終極進化版)
     # ==========================================
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.markdown("#### 1. 檢驗原始歷史資料")
-            if "歷史" in engine and raw_hist_series is not None:
-                st.write("這是從 Yahoo Finance 抓下來的真實日報酬率，已經包含還原權息 (auto_adjust=True)。")
-                df_raw = raw_hist_series.reset_index()
-                df_raw.columns = ['Date', 'Daily Return']
-                st.dataframe(df_raw, height=200)
-                csv_raw = df_raw.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 下載原始資料 (CSV)", csv_raw, "raw_history.csv", "text/csv")
-            else:
-                st.info("目前使用 GBM 數學模型，無歷史真實報價資料可供下載。")
-
-        with c2:
-            st.markdown("#### 2. 上帝視角：第 1 號宇宙溯源明細")
-            st.write("這份清單保留了蒙地卡羅「拼接歷史」的軌跡。你可以比對 **「歷史對應日期」** 與左側的原始報價是否 100% 吻合。")
-            df_u1 = pd.DataFrame(u1_history)
-            csv_u1 = df_u1.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下載第 1 號宇宙溯源明細 (CSV)", csv_u1, "universe_1_god_mode.csv", "text/csv")
-
-else:
-    st.info("👈 參數儀表板與 C 計劃驗證區已上線！準備開始嚴謹的量化實驗吧。")
+        st.markdown("#### 1. 檢驗原始歷史資料")
+        if "歷史" in
