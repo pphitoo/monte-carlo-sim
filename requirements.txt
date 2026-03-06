@@ -3,4 +3,4 @@ numpy
 pandas
 matplotlib
 seaborn
-yfinance
+yfinance>=0.2.40
