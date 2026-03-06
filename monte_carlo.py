@@ -12,7 +12,7 @@ from datetime import datetime
 st.set_page_config(page_title="量化回測實驗室", layout="wide")
 st.title("🔬 終極量化回測實驗室 (邏輯校準版)")
 
-# 🌟 解決 2023 限制的關鍵：定義今日
+# 🌟 解決 2026 日期選取限制
 today = datetime.now().date()
 min_date = datetime(2000, 1, 1).date()
 
@@ -47,7 +47,7 @@ drop_threshold = st.sidebar.slider("抄底觸發 (%)", 5, 50, 20) / 100
 transfer_pct = st.sidebar.slider("轉入比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
-# 核心運算
+# 2. 核心運算
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=600)
 def get_hist_data(tkr, start, end):
@@ -72,15 +72,15 @@ if st.sidebar.button("🚀 開始運算", type="primary", use_container_width=Tr
                 for i in range(block_size):
                     if b*block_size+i < days: sim_ret_base[b*block_size+i, :] = rets[indices[b,:]+i]
         else:
-            Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -10, 10) # 緊縮限制防止數值核爆
+            Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -15, 15)
             sim_ret_base = np.exp((mu_base - 0.5*sig_base**2)*dt + sig_base*np.sqrt(dt)*Z) - 1
             
         sim_ret_lev = (sim_ret_base * lev_mult) - (drag_annual/252)
         
-        # 🌟 核心防護：乘數不可小於 0 (資產歸零即停止下跌)
+        # 🌟 破產防線：乘數不可小於 0
         m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
 
-        # 策略初始資金
+        # 策略初始化 (全部歸一化到 initial_capital)
         v1, v2_c, v2_L, v3_c, v3_L, v4, v5_B, v5_L, v6_c, v6_s = [np.ones(N)*initial_capital for _ in range(10)]
         v2_c, v2_L, v3_c, v3_L = v2_c*0.5, v2_L*0.5, v3_c*0.5, v3_L*0.5
         v5_L, v6_s = np.zeros(N), np.zeros(N)
@@ -91,21 +91,29 @@ if st.sidebar.button("🚀 開始運算", type="primary", use_container_width=Tr
 
         for d in range(days):
             rb, rl = m_B[d], m_L[d]
-            v1 *= rl; v4 *= rb; v2_c *= cash_growth; v2_L *= rl; v3_c *= cash_growth; v3_L *= rl
+            # 策略 1: 100% 槓桿
+            v1 *= rl
+            # 策略 4: 100% 基準
+            v4 *= rb
+            # 策略 2: 50/50 持有 (基準報酬)
+            v2_c *= cash_growth; v2_L *= rb
+            # 策略 3: 50/50 再平衡 (基準報酬)
+            v3_c *= cash_growth; v3_L *= rb
             if (d+1)%252==0: v3_c, v3_L = (v3_c+v3_L)*0.5, (v3_c+v3_L)*0.5
-            v5_B *= rb; v5_L *= rl; ath = np.maximum(ath, v4/initial_capital)
+            # 策略 5: 跌深抄底
+            v5_B *= rb; v5_L *= rl
+            ath = np.maximum(ath, v4/initial_capital)
             dd = (v4/initial_capital)/ath
             trig[dd == 1] = False
             cond = (dd <= 1-drop_threshold) & (~trig)
             if np.any(cond):
                 move = v5_B[cond]*transfer_pct
                 v5_B[cond]-=move; v5_L[cond]+=move; trig[cond]=True
-            
+            # 策略 6: 分批買入
             v6_c *= cash_growth; v6_s *= rb
             if d%dca_interval==0 and d//dca_interval < dca_parts:
                 v6_c -= dca_amt; v6_s += dca_amt
 
-        # 🌟 彙整所有 6 種策略
         df_res = pd.DataFrame({
             '1. 100% 槓桿': v1,
             '2. 50/50 持有': v2_c + v2_L,
