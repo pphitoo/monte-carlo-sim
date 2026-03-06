@@ -47,7 +47,7 @@ with st.expander("📖 實驗室說明與 6 大情境策略 (點擊展開)", exp
     * **策略 1. 一般散戶 (100% 基準)**：手邊的錢第一天全買大盤，之後每個月的閒錢也按時買大盤。最標準的投資法。
     * **策略 2. 激進賭徒 (100% 槓桿)**：手邊的錢跟每個月的閒錢，全部拿去買 2 倍槓桿。追求極致報酬，但也承擔極致風險。
     * **策略 3. 保守定存 (50/50 持有)**：手邊的錢跟每個月的閒錢，都只拿一半買大盤，另一半放銀行定存 (1% 利率) 絕對不碰。
-    * **策略 4. 紀律經理 (50/50 再平衡)**：跟策略 3 一樣一半股票一半存款，但每年底會「重新平衡」，把賺錢的部分賣掉存起來，或拿存款補虧損的股票。
+    * **策略 4. 紀律經理 (50大盤/50槓桿 再平衡)**：手邊的錢跟每個月的閒錢，一半買 1 倍大盤，一半買 2 倍槓桿。每年底會強制「重新平衡」，把賺比較多的賣掉，補給另一個，維持 1:1 的完美比例。
     * **策略 5. 老謀深算 (跌深抄底)**：手邊的錢留一半放銀行等崩盤，等大盤跌到設定的滿足點，就拿存款去抄底「2 倍槓桿」；每月閒錢則安分買大盤。
     * **策略 6. 時空旅人 (神明對照組)**：向神明借未來所有的錢，第一天直接「歐印 (All-in)」大盤。用來測試「資金越早進場越好」的終極對照組。
     """)
@@ -143,7 +143,10 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         v1_base = np.ones(N) * initial_cap
         v2_lev = np.ones(N) * initial_cap
         v3_c = np.ones(N) * initial_cap * 0.5; v3_b = np.ones(N) * initial_cap * 0.5
-        v4_c = np.ones(N) * initial_cap * 0.5; v4_b = np.ones(N) * initial_cap * 0.5
+        
+        # 🌟 策略 4 升級：一半 1 倍大盤，一半 2 倍槓桿
+        v4_b = np.ones(N) * initial_cap * 0.5; v4_l = np.ones(N) * initial_cap * 0.5
+        
         v5_c = np.ones(N) * initial_cap * 0.5; v5_b = np.ones(N) * initial_cap * 0.5; v5_l = np.zeros(N)
         v6_lumpsum = np.ones(N) * total_cap 
         
@@ -159,8 +162,10 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             
             v3_c *= cash_growth; v3_b *= rb
             
-            v4_c *= cash_growth; v4_b *= rb
-            if (d+1)%252==0: v4_c, v4_b = (v4_c+v4_b)*0.5, (v4_c+v4_b)*0.5
+            # 🌟 策略 4 日常結算：分別乘上基準大盤與槓桿的報酬率
+            v4_b *= rb; v4_l *= rl
+            # 🌟 策略 4 每年再平衡：強迫校正回 50/50 比例
+            if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
             
             v5_c *= cash_growth; v5_b *= rb; v5_l *= rl
             ath = np.maximum(ath, v6_lumpsum/total_cap) 
@@ -179,16 +184,19 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 v1_base += periodic_cap
                 v2_lev += periodic_cap
                 v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
-                v4_c += periodic_cap * 0.5; v4_b += periodic_cap * 0.5
+                
+                # 🌟 策略 4 注入分期資金：一半買大盤，一半買槓桿
+                v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
+                
                 v5_b += periodic_cap 
-                # v6_lumpsum 不加碼 (時空旅人第一天已經全押)
+                # v6_lumpsum 不加碼
 
-        # 整理成表格 (名稱完全對齊人設)
+        # 整理成表格
         df_res = pd.DataFrame({
             '1. 一般散戶 (100% 基準)': v1_base,
             '2. 激進賭徒 (100% 槓桿)': v2_lev,
             '3. 保守定存 (50/50 持有)': v3_c + v3_b,
-            '4. 紀律經理 (50/50 再平衡)': v4_c + v4_b,
+            '4. 紀律經理 (50大盤/50槓桿 再平衡)': v4_b + v4_l,
             '5. 老謀深算 (跌深抄底)': v5_c + v5_b + v5_l,
             '6. 時空旅人 (總成本首日全下)': v6_lumpsum
         })
