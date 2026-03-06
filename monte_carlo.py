@@ -82,21 +82,31 @@ show_s5 = st.sidebar.checkbox(
 # ==========================================
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)  # 快取 1 小時，避免頻繁請求被鎖
 def get_hist_data(tkr, start, end):
-    data = yf.download(tkr, start=start, end=end, progress=False)
-    if data.empty:
-        return None
+    import time
+    # 🌟 嘗試 3 次重試機制
+    for i in range(3):
+        try:
+            # 強制設定為 auto_adjust=True 讓 Yahoo 直接給我們還原權息的資料
+            data = yf.download(tkr, start=start, end=end,
+                               progress=False, auto_adjust=True)
 
-    # 🌟 強力修正：如果沒有 Adj Close，我們自己從 Close 和 Dividends 手動計算還原權息
-    # 這樣就不用怕 Yahoo 不給數據了！
-    if 'Adj Close' in data.columns:
-        return data['Adj Close'].pct_change().dropna().values.flatten()
-    else:
-        # 如果沒有調整數據，我們用 (Close + Dividends) / Previous_Close 來算真實報酬
-        data['Returns'] = (
-            data['Close'] + data.get('Dividends', 0)) / data['Close'].shift(1) - 1
-        return data['Returns'].dropna().values.flatten()
+            if not data.empty and len(data) > 5:
+                # 偵測欄位：auto_adjust=True 會讓欄位直接變成 'Close'
+                # 這裡要小心 Multi-index 的問題
+                if isinstance(data.columns, pd.MultiIndex):
+                    # 如果是多層標題，取第一層是 Close 的那一欄
+                    returns = data['Close'].iloc[:, 0].pct_change().dropna()
+                else:
+                    returns = data['Close'].pct_change().dropna()
+
+                return returns.values.flatten()
+        except Exception as e:
+            st.sidebar.warning(f"第 {i+1} 次連線嘗試失敗... 正在重試")
+            time.sleep(1)  # 停一秒再試
+
+    return None
 
 
 # ==========================================
