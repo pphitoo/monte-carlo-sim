@@ -345,4 +345,38 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
         st.markdown("#### 1. 檢驗原始歷史資料")
-        if "歷史" in
+        if "歷史" in engine and raw_hist_series is not None:
+            df_raw = raw_hist_series.reset_index()
+            df_raw.columns = ['Date', 'Daily Return']
+            csv_raw = df_raw.to_csv(index=False).encode('utf-8-sig')
+            st.download_button("📥 下載 Yahoo Finance 原始資料 (CSV)", csv_raw, "raw_history.csv", "text/csv")
+        else:
+            st.info("目前使用 GBM 數學模型，無歷史真實報價資料可供下載。")
+
+        st.divider()
+
+        st.markdown("#### 2. 下載 5 大代表性宇宙的逐日明細 (以大盤終值排名)")
+        st.write("系統已精準捕捉在 5000 次平行宇宙中，表現達到 **Worst, Q1, Median, Q3, Best** 的五條時間線。")
+        st.write("你可以點擊下方按鈕，下載該宇宙這幾千天以來的每一天淨值變化、大盤跌幅與資金軌跡！")
+        
+        # 建立五個並排的下載按鈕
+        cols = st.columns(5)
+        for i, label in enumerate(target_labels):
+            df_export = pd.DataFrame({
+                'Day': np.arange(1, days + 1),
+                '抽樣區塊編號': sub_blocks[:, i],
+                '歷史對應日期': sub_dates[:, i],
+                '大盤單日報酬': m_B_sub[:, i] - 1,
+                '槓桿單日報酬': m_L_sub[:, i] - 1,
+                '1. 一般散戶': hist_v1[:, i],
+                '2. 激進賭徒': hist_v2[:, i],
+                '3. 保守定存': hist_v3[:, i],
+                '4. 紀律經理': hist_v4[:, i],
+                '5. 危機入市': hist_v5[:, i],
+                '6. 時空旅人': hist_v6[:, i],
+            })
+            csv_export = df_export.to_csv(index=False).encode('utf-8-sig')
+            cols[i].download_button(f"📥 下載 {label}", csv_export, f"Universe_{label.split(' ')[0]}.csv", "text/csv")
+
+else:
+    st.info("👈 參數儀表板與 C 計劃驗證區已上線！準備開始嚴謹的量化實驗吧。")
