@@ -9,21 +9,19 @@ import matplotlib.font_manager as fm
 import os
 
 # ==========================================
-# 0. 字體設定與日期解封
+# 0. 字體設定與日期解封 (全平台終極解法)
 # ==========================================
-found_font = False
-for f in fm.findSystemFonts(fontpaths=None, fontext='ttf'):
-    try:
-        if 'wqy' in f.lower() or 'noto' in f.lower() or 'jhenghei' in f.lower(): 
-            font_prop = fm.FontProperties(fname=f)
-            plt.rcParams['font.family'] = font_prop.get_name()
-            found_font = True
-            break
-    except:
-        pass
+import platform
 
-if not found_font and os.name == 'nt':
-    plt.rcParams['font.family'] = ['Microsoft JhengHei']
+system = platform.system()
+if system == 'Darwin':  # Apple macOS 系統
+    plt.rcParams['font.sans-serif'] = ['PingFang TC', 'Heiti TC', 'Arial Unicode MS']
+elif system == 'Windows':  # Windows 系統
+    plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei']
+else:  # Linux 系統 (例如未來如果你部署到 Streamlit Cloud)
+    plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC', 'WenQuanYi Micro Hei']
+
+plt.rcParams['axes.unicode_minus'] = False  # 確保負號 (-) 也能正常顯示，不會變成方塊
 
 today = datetime.now().date()
 min_date = datetime(2000, 1, 1).date()
@@ -266,3 +264,4 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     st.pyplot(fig)
 else:
     st.info("👈 資金設定更靈活了！請在左側輸入「初期資金」與「分期資金/頻率」，準備開始運算。")
+
