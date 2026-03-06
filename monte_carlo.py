@@ -113,22 +113,40 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         sim_ret_base = np.zeros((days, N))
         raw_hist_series = None
         
+        # 🌟 C 計劃 (上帝視角)：準備存放日期與區塊編號的陣列
+        u1_dates = np.empty(days, dtype=object)
+        u1_blocks = np.empty(days, dtype=object)
+        
         if "歷史" in engine:
             raw_hist_series = get_hist_data(ticker, start_date, end_date)
             if raw_hist_series is None or len(raw_hist_series) < block_size:
                 st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
                 st.stop()
+            
             rets = raw_hist_series.values.flatten()
+            raw_dates = raw_hist_series.index.strftime('%Y-%m-%d').values # 抽出真實歷史日期字串
+            
             indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
+            
             for b in range(indices.shape[0]):
                 starts = indices[b,:]
+                # 針對第 1 號宇宙 (Index 0) 紀錄日期與區塊
+                u1_start_idx = indices[b, 0] 
+                
                 for i in range(block_size):
                     d_idx = b * block_size + i
-                    if d_idx < days: sim_ret_base[d_idx, :] = rets[starts + i]
+                    if d_idx < days: 
+                        sim_ret_base[d_idx, :] = rets[starts + i]
+                        # 紀錄第 1 號宇宙的軌跡
+                        u1_dates[d_idx] = raw_dates[u1_start_idx + i]
+                        u1_blocks[d_idx] = f"Block #{b+1}"
         else:
             Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -15, 15)
             log_ret_base = (mu_base - 0.5 * sig_base**2) * dt + sig_base * np.sqrt(dt) * Z
             sim_ret_base = np.exp(log_ret_base) - 1
+            # 數學模型沒有真實歷史日期
+            u1_dates[:] = "N/A (數學模型)"
+            u1_blocks[:] = "N/A (數學模型)"
             
         sim_ret_lev = (sim_ret_base * lev_mult) - (drag_annual/252)
         m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
@@ -142,9 +160,11 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         v6_lumpsum = np.ones(N) * total_cap 
         ath = np.ones(N) 
 
-        # 🌟 C 計劃：預備捕捉第 1 號宇宙 (Index 0) 的逐日數據
+        # 🌟 建立帶有「歷史對應日期」與「區塊編號」的追蹤字典
         u1_history = {
             'Day': np.arange(1, days + 1),
+            '抽樣區塊編號': u1_blocks,
+            '歷史對應日期': u1_dates,
             '大盤單日報酬': sim_ret_base[:, 0],
             '槓桿單日報酬': sim_ret_lev[:, 0],
             '1. 一般散戶': np.zeros(days),
@@ -185,7 +205,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
                 v5_b += periodic_cap 
 
-            # 🌟 捕捉第一號宇宙的當日淨值 (轉換為萬)
             u1_history['1. 一般散戶'][d] = v1_base[0] / 10000
             u1_history['2. 激進賭徒'][d] = v2_lev[0] / 10000
             u1_history['3. 保守定存'][d] = (v3_c[0] + v3_b[0]) / 10000
@@ -271,7 +290,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         with c1:
             st.markdown("#### 1. 檢驗原始歷史資料")
             if "歷史" in engine and raw_hist_series is not None:
-                st.write("這是系統從 Yahoo Finance 抓下來的真實日報酬率，已經包含還原權息 (auto_adjust=True)。")
+                st.write("這是從 Yahoo Finance 抓下來的真實日報酬率，已經包含還原權息 (auto_adjust=True)。")
                 df_raw = raw_hist_series.reset_index()
                 df_raw.columns = ['Date', 'Daily Return']
                 st.dataframe(df_raw, height=200)
@@ -281,12 +300,11 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 st.info("目前使用 GBM 數學模型，無歷史真實報價資料可供下載。")
 
         with c2:
-            st.markdown("#### 2. 下載單一宇宙逐日運算明細")
-            st.write("這是 5000 個平行宇宙中的**「第 1 號宇宙 (Universe #1)」**這幾千天下來的逐日淨值變化。")
-            st.write("強烈建議下載此表至 Excel，親手拉公式驗證「抄底」或「再平衡」的精準度！")
+            st.markdown("#### 2. 上帝視角：第 1 號宇宙溯源明細")
+            st.write("這份清單保留了蒙地卡羅「拼接歷史」的軌跡。你可以比對 **「歷史對應日期」** 與左側的原始報價是否 100% 吻合。")
             df_u1 = pd.DataFrame(u1_history)
             csv_u1 = df_u1.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下載第 1 號宇宙逐日明細 (CSV)", csv_u1, "universe_1_daily_details.csv", "text/csv")
+            st.download_button("📥 下載第 1 號宇宙溯源明細 (CSV)", csv_u1, "universe_1_god_mode.csv", "text/csv")
 
 else:
     st.info("👈 參數儀表板與 C 計劃驗證區已上線！準備開始嚴謹的量化實驗吧。")
