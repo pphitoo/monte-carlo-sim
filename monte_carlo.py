@@ -357,25 +357,35 @@ if st.session_state['sim_done']:
         if fv <= 0: return -100.0
         return ((fv / pv) ** (1 / years) - 1) * 100
 
-    # 🌟 表格數據生成區 (加入「年化報酬率」明確備註)
+    # 🌟 表格數據瘦身優化：策略折行、欄位統一註明 CAGR，去除冗餘文字
     stats = []
     df_res_van = data['df_res_van']
+    
+    strategy_map = {
+        '1. 一般散戶 (100% 基準)': '1. 一般散戶\n(100% 基準)',
+        '2. 激進賭徒 (100% 槓桿)': '2. 激進賭徒\n(100% 槓桿)',
+        '3. 保守定存 (50/50 持有)': '3. 保守定存\n(50/50 持有)',
+        '4. 紀律經理 (50大盤/50槓桿)': '4. 紀律經理\n(50/50再平衡)',
+        '5. 危機入市 (階梯換槓桿)': '5. 危機入市\n(階梯換槓桿)',
+        '6. 時空旅人 (總成本首日全下)': '6. 時空旅人\n(首日全下)'
+    }
+    
     for col in df_res_van.columns:
         d = df_res_van[col]
         win_rate = (d > data['bank_value_wan']).mean() * 100
         v_min, v_q1, v_med, v_q3, v_max = np.min(d), np.percentile(d, 25), np.median(d), np.percentile(d, 75), np.max(d)
         
         stats.append({
-            '策略': col,
-            '勝率(贏定存)': f"{win_rate:.1f}%",
-            '最糟 Min': f"{v_min:,.1f}萬\n(年化報酬率 {calc_cagr(v_min, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '較差 Q1': f"{v_q1:,.1f}萬\n(年化報酬率 {calc_cagr(v_q1, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '中位 Median': f"{v_med:,.1f}萬\n(年化報酬率 {calc_cagr(v_med, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '較佳 Q3': f"{v_q3:,.1f}萬\n(年化報酬率 {calc_cagr(v_q3, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '最佳 Max': f"{v_max:,.1f}萬\n(年化報酬率 {calc_cagr(v_max, data['actual_total_capital_wan'], data['sim_years']):.1f}%)"
+            '策略': strategy_map.get(col, col),
+            '勝率\n(贏定存)': f"{win_rate:.1f}%",
+            '最糟 Min\n(萬 / CAGR)': f"{v_min:,.1f}\n({calc_cagr(v_min, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '較差 Q1\n(萬 / CAGR)': f"{v_q1:,.1f}\n({calc_cagr(v_q1, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '中位 Median\n(萬 / CAGR)': f"{v_med:,.1f}\n({calc_cagr(v_med, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '較佳 Q3\n(萬 / CAGR)': f"{v_q3:,.1f}\n({calc_cagr(v_q3, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '最佳 Max\n(萬 / CAGR)': f"{v_max:,.1f}\n({calc_cagr(v_max, data['actual_total_capital_wan'], data['sim_years']):.1f}%)"
         })
         
-    st.markdown("#### 🏆 策略終值與年化報酬率對照表")
+    st.markdown("#### 🏆 策略終值與年化報酬率(CAGR)對照表")
     df_stats = pd.DataFrame(stats).set_index('策略')
     st.dataframe(df_stats, use_container_width=True)
     
@@ -407,7 +417,7 @@ if st.session_state['sim_done']:
         st.pyplot(fig2)
 
     # ==========================================
-    # 🌟 匯出 PDF 報告按鈕區 (圖表+精美表格完全體)
+    # 🌟 匯出 PDF 報告按鈕區 (排版全面升級版)
     # ==========================================
     st.divider()
     st.markdown("### 📄 實驗室報告輸出")
@@ -429,28 +439,44 @@ if st.session_state['sim_done']:
         pdf.set_auto_page_break(auto=True, margin=15)
         
         pdf.add_font('NotoSans', '', font_path, uni=True)
-        pdf.set_font('NotoSans', '', 16)
+        pdf.set_font('NotoSans', '', 18)
             
-        title = "蒙地卡羅量化回測實驗室 - 分析報告"
+        title = "蒙地卡羅量化回測實驗室 - 戰情報告"
         pdf.cell(0, 10, title, ln=True, align="C")
-        pdf.set_font('NotoSans', '', 12)
-        pdf.ln(5)
+        pdf.ln(2)
         
+        # 🌟 補齊所有模擬參數
+        pdf.set_font('NotoSans', '', 11)
         params_txt = f"""
-        [模擬參數]
-        - 模擬標的: {data['ticker']}
-        - 模擬年限: {data['sim_years']} 年 ({data['api_label']})
-        - 總投入成本: {data['actual_total_capital_wan']:.1f} 萬
-        - 槓桿設定: {data['lev_mult']}x (耗損 {data['drag_annual']*100}%)
+        【模擬參數設定】
+        - 標的與年限： {data['ticker']} / 模擬未來 {data['sim_years']} 年 ({data['api_label']})
+        - 資金佈局： 初期 {data['initial_input_wan']} 萬 + 每 {data['dca_interval_months']} 個月投入 {data['periodic_input_wan']} 萬 (共扣款 {data['actual_dca_parts']} 次)
+        - 成本與基準： 實際投入總成本 {data['actual_total_capital_wan']:.1f} 萬 / 定存基準 {data['bank_value_wan']:.1f} 萬 ({data['risk_free_rate']}%)
+        - 槓桿與抄底： 槓桿 {data['lev_mult']}x (耗損 {data['drag_annual']*100}%) / 大盤跌 {data['drop_threshold']*100:.0f}% 換 {data['transfer_pct']*100:.0f}% 槓桿
         """
         for line in params_txt.strip().split('\n'):
-            pdf.cell(0, 8, line.strip(), ln=True)
+            pdf.cell(0, 6, line.strip(), ln=True)
         
+        pdf.ln(3)
+
+        # 🌟 補入實驗室與 6 大策略說明
+        pdf.set_font('NotoSans', '', 9)
+        desc_txt = """
+        【實驗室說明與 6 大策略邏輯】
+        * 1. 一般散戶 (100% 基準)： 全數買入 1 倍大盤，最真實的散戶對照組。
+        * 2. 激進賭徒 (100% 槓桿)： 全數買入 2 倍槓桿，測試爆倉與暴富極限。
+        * 3. 保守定存 (50/50 持有)： 50% 買大盤，50% 放銀行定存不投入股市。
+        * 4. 紀律經理 (50/50 再平衡)： 50% 大盤搭配 50% 槓桿，每年底強制停利停損，將比例拉回 1:1。
+        * 5. 危機入市 (階梯換槓桿)： 100% 買大盤，當大盤依級距重挫時，分批賣大盤轉買槓桿抄底。
+        * 6. 時空旅人 (神明對照組)： 向神明借未來所有的錢，第一天將總成本直接歐印大盤。
+        """
+        pdf.multi_cell(0, 5, desc_txt.strip())
         pdf.ln(5)
-        pdf.set_font('NotoSans', '', 14)
-        pdf.cell(0, 10, "🏆 策略終值與年化報酬率對照表", ln=True, align="L")
+
+        # 🌟 瘦身版精美表格圖片渲染
+        pdf.set_font('NotoSans', '', 12)
+        pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR)對照表", ln=True, align="L")
         
-        # 🌟 將數據 DataFrame 轉換為 Matplotlib 精美表格圖片
         fig_tbl, ax_tbl = plt.subplots(figsize=(16, 5))
         ax_tbl.axis('off')
         
@@ -461,10 +487,9 @@ if st.session_state['sim_done']:
                            cellLoc='center')
         
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(10)
-        tbl.scale(1, 3.5) # 拉高儲存格，讓多行文字完美顯示
+        tbl.set_fontsize(11)
+        tbl.scale(1, 4.5) # 空間釋放：把格子拉高，讓換行文字能舒服地住進去
         
-        # 幫表格塗上專業的配色
         for (i, j), cell in tbl.get_celld().items():
             if i == 0:
                 cell.set_facecolor('#4C72B0')
@@ -476,9 +501,10 @@ if st.session_state['sim_done']:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_tbl:
             fig_tbl.savefig(tmp_tbl.name, format="png", bbox_inches="tight", dpi=200)
             pdf.image(tmp_tbl.name, x=10, w=190)
-        plt.close(fig_tbl) # 釋放記憶體
+        plt.close(fig_tbl)
             
-        pdf.ln(5)
+        pdf.add_page() # 因為首頁資訊變多，圖表自動換到第二頁
+        pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 10, "📈 終值分佈與年化報酬率盒鬚圖", ln=True, align="L")
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile1:
