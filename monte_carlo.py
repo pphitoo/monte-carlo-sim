@@ -56,7 +56,6 @@ engine = st.sidebar.selectbox("🧠 模擬引擎", ["1. 歷史區塊抽樣 (Bloc
 st.sidebar.header("💰 彈性資金與機會成本")
 initial_input_wan = st.sidebar.number_input("🏦 初期單筆資金 (萬)", min_value=0.0, value=100.0, step=10.0)
 periodic_input_wan = st.sidebar.number_input("📥 每次分期投入 (萬)", min_value=0.0, value=10.0, step=1.0)
-# 🌟 優化：分批上限改為精準手動輸入
 dca_parts = st.sidebar.number_input("分批次數上限", min_value=1, value=12, step=1)
 dca_interval_months = st.sidebar.slider("買入頻率 (月)", min_value=1, max_value=12, value=1)
 risk_free_rate = st.sidebar.number_input("🏦 無風險定存利率 (%)", min_value=0.0, max_value=10.0, value=1.5, step=0.1)
@@ -110,11 +109,12 @@ drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20)
 transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
-# 3. 雙源共識融合下載模組
+# 3. 雙源共識融合下載模組 (完美免疫時區衝突)
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=600)
 def get_hist_data_consensus(tkr, start, end):
     try:
+        # --- 步驟 1：下載 Yahoo 資料 ---
         df_y = pd.Series(dtype=float)
         try:
             data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
@@ -123,9 +123,14 @@ def get_hist_data_consensus(tkr, start, end):
                     df_y = data_y['Close'].iloc[:, 0].pct_change().dropna()
                 else:
                     df_y = data_y['Close'].pct_change().dropna()
+                
+                # 🌟 核心防護：強制剝離 Yahoo 資料的時區標籤，統一變成純日期，避免美股時區衝突
+                if df_y.index.tz is not None:
+                    df_y.index = df_y.index.tz_localize(None)
         except:
             pass
             
+        # --- 步驟 2：下載 FinMind 資料 ---
         df_f = pd.Series(dtype=float)
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
@@ -156,10 +161,13 @@ def get_hist_data_consensus(tkr, start, end):
         except:
             pass
 
+        # --- 步驟 3：建立對照表 ---
         if df_f.empty and df_y.empty:
             return None
         
         df_merged = pd.DataFrame({'FinMind_Raw': df_f, 'Yahoo_Raw': df_y})
+        
+        # 預設採用 FinMind，缺漏由 Yahoo 補上 (如果輸入美股，FinMind是空值，這行會自動把 Yahoo 補成主流)
         df_merged['Final_Consensus'] = df_merged['FinMind_Raw'].fillna(df_merged['Yahoo_Raw'])
         
         anomaly_mask = df_merged['Final_Consensus'].abs() > 0.15
@@ -394,7 +402,6 @@ if st.session_state['sim_done']:
         st.write(f"- 基準定存：**{data['bank_value_wan']:.1f} 萬** ({data['risk_free_rate']}%)")
     with p_col3:
         st.markdown("**🛠️ 進階策略設定**")
-        # 🌟 優化：加入模擬標的顯示
         st.write(f"- 模擬標的：**{data['ticker']}**")
         if "歷史" in data['engine']:
             st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}**")
