@@ -100,7 +100,8 @@ else:
     ticker = "數學模型 (無特定標的)"
     mu_base = st.sidebar.number_input("基準標的 預期年報酬 (%)", value=10.0) / 100
     sig_base = st.sidebar.number_input("基準標的 年化波動率 (%)", value=16.0) / 100
-    df_t = st.sidebar.slider("肥尾效應強度 (t分配)", 2, 30, 3)
+    # 🌟 優化：將肥尾效應強度改為 0.5 級距，並允許小數
+    df_t = st.sidebar.slider("肥尾效應強度 (t分配)", min_value=2.0, max_value=30.0, value=3.0, step=0.5)
 
 st.sidebar.header("🛠️ 槓桿與抄底微調")
 lev_mult = st.sidebar.number_input("槓桿倍數", 1.0, 5.0, 2.0, 0.5)
@@ -115,7 +116,6 @@ transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 10
 def get_hist_data_consensus(tkr, start, end):
     try:
         # --- 步驟 1：下載 Yahoo 資料 ---
-        # 🌟 修復 B：嚴格宣告時間索引，杜絕型態降級
         df_y = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
@@ -132,7 +132,6 @@ def get_hist_data_consensus(tkr, start, end):
             pass
             
         # --- 步驟 2：下載 FinMind 資料 ---
-        # 🌟 修復 B：嚴格宣告時間索引，杜絕型態降級
         df_f = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
@@ -169,7 +168,7 @@ def get_hist_data_consensus(tkr, start, end):
         
         df_merged = pd.DataFrame({'FinMind_Raw': df_f, 'Yahoo_Raw': df_y})
         
-        # 預設採用 FinMind，缺漏由 Yahoo 補上 (如果輸入美股，FinMind是空值，這行會自動把 Yahoo 補成主流)
+        # 預設採用 FinMind，缺漏由 Yahoo 補上
         df_merged['Final_Consensus'] = df_merged['FinMind_Raw'].fillna(df_merged['Yahoo_Raw'])
         
         anomaly_mask = df_merged['Final_Consensus'].abs() > 0.15
@@ -365,6 +364,8 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'end_date': end_date if "歷史" in engine else None,
             'mu_base': mu_base if "歷史" not in engine else None,
             'sig_base': sig_base if "歷史" not in engine else None,
+            # 🌟 寫入新參數
+            'df_t': df_t if "歷史" not in engine else None,
             'lev_mult': lev_mult,
             'drag_annual': drag_annual,
             'drop_threshold': drop_threshold,
@@ -409,6 +410,8 @@ if st.session_state['sim_done']:
             st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}**")
         else:
             st.write(f"- 預期報酬/波動：**{data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}%**")
+            # 🌟 優化：加上肥尾效應強度的防呆解說
+            st.write(f"- 肥尾效應強度：**{data['df_t']}** (數值越小，極端股災機率越高)")
         st.write(f"- 槓桿與危機入市：**{data['lev_mult']}x** (跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**)")
     
     st.divider() 
