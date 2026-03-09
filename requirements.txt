@@ -4,3 +4,4 @@ pandas
 matplotlib
 seaborn
 yfinance>=0.2.40
+requests
