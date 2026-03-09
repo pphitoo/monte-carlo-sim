@@ -84,7 +84,6 @@ st.sidebar.info(f"💡 **真實投入分析**\n\n"
 
 st.sidebar.header("📅 歷史區間與標的")
 if "歷史" in engine:
-    # 🌟 升級為雙源共識融合引擎
     api_source = st.sidebar.radio("📡 歷史資料庫引擎", [
         "🔥 雙源共識融合 (FinMind 主體 + Yahoo 智能除錯)"
     ])
@@ -105,7 +104,7 @@ drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20)
 transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
-# 3. 雙源共識融合下載模組 (完美除蟲版)
+# 3. 雙源共識融合下載模組 (三合一對照表輸出版)
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=600)
 def get_hist_data_consensus(tkr, start, end):
@@ -122,12 +121,10 @@ def get_hist_data_consensus(tkr, start, end):
         except:
             pass
             
-        # --- 步驟 2：下載 FinMind 資料 (當作主體，因為歷史夠長) ---
+        # --- 步驟 2：下載 FinMind 資料 (當作主體) ---
         df_f = pd.Series(dtype=float)
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
-            
-            # 抓股價
             url = "https://api.finmindtrade.com/api/v4/data"
             params_price = {"dataset": "TaiwanStockPrice", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
             res_price = requests.get(url, params=params_price).json()
@@ -137,7 +134,6 @@ def get_hist_data_consensus(tkr, start, end):
                 df_price['date'] = pd.to_datetime(df_price['date'])
                 df_price.set_index('date', inplace=True)
                 
-                # 抓股息
                 params_div = {"dataset": "TaiwanStockDividendResult", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
                 res_div = requests.get(url, params=params_div).json()
                 df_price['dividend'] = 0.0 
@@ -150,35 +146,36 @@ def get_hist_data_consensus(tkr, start, end):
                     df_price = df_price.join(df_div[[div_col]], how='left')
                     df_price['dividend'] = df_price[div_col].fillna(0.0)
                 
-                # 算總報酬
                 df_price['prev_close'] = df_price['close'].shift(1)
                 df_price['total_return'] = (df_price['close'] + df_price['dividend']) / df_price['prev_close'] - 1
                 df_f = df_price['total_return'].dropna()
         except:
             pass
 
-        # --- 步驟 3：神級融合邏輯 (Consensus Engine) ---
+        # --- 步驟 3：建立三合一對照表 DataFrame ---
         if df_f.empty and df_y.empty:
             return None
         
-        # 建立一個合併用的 DataFrame
-        df_merged = pd.DataFrame({'finmind': df_f, 'yahoo': df_y})
+        df_merged = pd.DataFrame({
+            'FinMind_Raw': df_f, 
+            'Yahoo_Raw': df_y
+        })
         
-        # 以 FinMind 為主體，如果有缺值，用 Yahoo 補上
-        df_merged['final_return'] = df_merged['finmind'].fillna(df_merged['yahoo'])
+        # 預設採用 FinMind，缺漏由 Yahoo 補上
+        df_merged['Final_Consensus'] = df_merged['FinMind_Raw'].fillna(df_merged['Yahoo_Raw'])
         
-        # 🚨 啟動極端值濾網：找出單日漲跌大於 15% 的異常值 (胖手指)
-        anomaly_mask = df_merged['final_return'].abs() > 0.15
+        # 🚨 啟動極端值濾網：找出單日漲跌大於 15% 的異常值 (例如那個 -75% 的核彈)
+        anomaly_mask = df_merged['Final_Consensus'].abs() > 0.15
         
-        # 如果發生異常，優先拿 Yahoo 的正常數據來替換；如果 Yahoo 也異常或沒有資料，就強制歸零 (當作沒開盤)
         for date in df_merged[anomaly_mask].index:
-            y_val = df_merged.loc[date, 'yahoo']
+            y_val = df_merged.loc[date, 'Yahoo_Raw']
             if pd.notna(y_val) and abs(y_val) <= 0.15:
-                df_merged.loc[date, 'final_return'] = y_val # 用正常的 Yahoo 數據替換核彈
+                df_merged.loc[date, 'Final_Consensus'] = y_val # 用正常的 Yahoo 數據替換核彈
             else:
-                df_merged.loc[date, 'final_return'] = 0.0   # 強制歸零防禦
+                df_merged.loc[date, 'Final_Consensus'] = 0.0   # 兩邊都錯就強制歸零防禦
                 
-        return df_merged['final_return'].dropna()
+        # 踢除最終結果還是 NaN 的日子，並回傳整張對照表
+        return df_merged.dropna(subset=['Final_Consensus'])
         
     except Exception as e:
         return None
@@ -192,18 +189,19 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         cash_growth = np.exp(0.01 * dt)
         
         sim_ret_base = np.zeros((days, N))
-        raw_hist_series = None
+        raw_hist_df = None
         raw_dates = None
         indices = None
         
         if "歷史" in engine:
-            raw_hist_series = get_hist_data_consensus(ticker, start_date, end_date)
-            if raw_hist_series is None or len(raw_hist_series) < block_size:
+            raw_hist_df = get_hist_data_consensus(ticker, start_date, end_date)
+            if raw_hist_df is None or len(raw_hist_df) < block_size:
                 st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
                 st.stop()
             
-            rets = raw_hist_series.values.flatten()
-            raw_dates = raw_hist_series.index.strftime('%Y-%m-%d').values
+            # 從對照表中抽出 Final_Consensus 來作為運算基礎
+            rets = raw_hist_df['Final_Consensus'].values.flatten()
+            raw_dates = raw_hist_df.index.strftime('%Y-%m-%d').values
             indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
             
             for b in range(indices.shape[0]):
@@ -437,12 +435,23 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     # ==========================================
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
-        st.markdown("#### 1. 檢驗原始歷史資料")
-        if "歷史" in engine and raw_hist_series is not None:
-            df_raw = raw_hist_series.reset_index()
-            df_raw.columns = ['Date', 'Daily Return']
-            csv_raw = df_raw.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(f"📥 下載 融合清洗後原始資料 (CSV)", csv_raw, f"raw_history_consensus.csv", "text/csv")
+        st.markdown("#### 1. 檢驗原始歷史資料 (三合一終極對照表)")
+        if "歷史" in engine and raw_hist_df is not None:
+            # 將索引重設並重新命名為 Date
+            df_export_check = raw_hist_df.reset_index()
+            if 'index' in df_export_check.columns:
+                df_export_check.rename(columns={'index': 'Date'}, inplace=True)
+            elif 'date' in df_export_check.columns:
+                df_export_check.rename(columns={'date': 'Date'}, inplace=True)
+                
+            csv_check = df_export_check.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 下載 雙引擎除錯對照表 (CSV)", 
+                data=csv_check, 
+                file_name="consensus_history_check.csv", 
+                mime="text/csv"
+            )
+            st.info("💡 下載這份 CSV，你可以看到每一天 `FinMind_Raw`、`Yahoo_Raw` 的原始數字，以及系統智能除錯後採用的 `Final_Consensus`！")
         else:
             st.info("目前使用 GBM 數學模型，無歷史真實報價資料可供下載。")
 
