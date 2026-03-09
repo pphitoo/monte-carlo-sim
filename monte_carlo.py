@@ -302,6 +302,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             sub_dates[:] = "N/A"
             sub_blocks[:] = "N/A"
 
+        # 🌟 確實把 block_size 加入 Session State，讓 PDF 抓得到
         st.session_state['sim_data'] = {
             'df_res_van': df_res_van, 'api_label': "雙源共識引擎" if "歷史" in engine else "GBM",
             'sim_years': sim_years, 'risk_free_rate': risk_free_rate,
@@ -310,6 +311,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'dca_interval_months': dca_interval_months, 'bank_value_wan': bank_value_wan,
             'ticker': ticker, 'start_date': start_date if "歷史" in engine else None,
             'end_date': end_date if "歷史" in engine else None,
+            'block_size': block_size if "歷史" in engine else None,
             'mu_base': mu_base if "歷史" not in engine else None, 'sig_base': sig_base if "歷史" not in engine else None,
             'df_t': df_t if "歷史" not in engine else None, 'lev_mult': lev_mult, 'drag_annual': drag_annual,
             'drop_threshold': drop_threshold, 'transfer_pct': transfer_pct,
@@ -345,11 +347,11 @@ if st.session_state['sim_done']:
         st.markdown("**🛠️ 進階策略設定**")
         st.write(f"- 模擬標的：**{data['ticker']}**")
         if "歷史" in data['engine']:
-            st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}**")
+            st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}** (區塊大小 {data['block_size']} 天)")
         else:
             st.write(f"- 預期報酬/波動：**{data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}%**")
             st.write(f"- 肥尾效應強度：**{data['df_t']}** (數值越小，極端股災機率越高)")
-        st.write(f"- 槓桿與危機入市：**{data['lev_mult']}x** (跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**)")
+        st.write(f"- 槓桿與危機入市：**{data['lev_mult']}x** (耗損 {data['drag_annual']*100:.1f}%) / 跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**")
     
     st.divider() 
     
@@ -357,7 +359,7 @@ if st.session_state['sim_done']:
         if fv <= 0: return -100.0
         return ((fv / pv) ** (1 / years) - 1) * 100
 
-    # 🌟 表格數據瘦身優化：策略折行、欄位統一註明 CAGR，去除冗餘文字
+    # 🌟 表格數據瘦身優化
     stats = []
     df_res_van = data['df_res_van']
     
@@ -417,7 +419,7 @@ if st.session_state['sim_done']:
         st.pyplot(fig2)
 
     # ==========================================
-    # 🌟 匯出 PDF 報告按鈕區 (排版全面升級版)
+    # 🌟 匯出 PDF 報告按鈕區 (參數 100% 完整還原版)
     # ==========================================
     st.divider()
     st.markdown("### 📄 實驗室報告輸出")
@@ -445,35 +447,48 @@ if st.session_state['sim_done']:
         pdf.cell(0, 10, title, ln=True, align="C")
         pdf.ln(2)
         
-        # 🌟 補齊所有模擬參數
+        # 🌟 PDF 參數還原：忠實垂直條列，包含所有遺漏的日期與區塊設定
         pdf.set_font('NotoSans', '', 11)
+        
+        if "歷史" in data['engine']:
+            adv_setting = f"- 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)"
+        else:
+            adv_setting = f"- 預期報酬/波動: {data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}% (肥尾強度: {data['df_t']})"
+
         params_txt = f"""
-        【模擬參數設定】
-        - 標的與年限： {data['ticker']} / 模擬未來 {data['sim_years']} 年 ({data['api_label']})
-        - 資金佈局： 初期 {data['initial_input_wan']} 萬 + 每 {data['dca_interval_months']} 個月投入 {data['periodic_input_wan']} 萬 (共扣款 {data['actual_dca_parts']} 次)
-        - 成本與基準： 實際投入總成本 {data['actual_total_capital_wan']:.1f} 萬 / 定存基準 {data['bank_value_wan']:.1f} 萬 ({data['risk_free_rate']}%)
-        - 槓桿與抄底： 槓桿 {data['lev_mult']}x (耗損 {data['drag_annual']*100}%) / 大盤跌 {data['drop_threshold']*100:.0f}% 換 {data['transfer_pct']*100:.0f}% 槓桿
+        [資金佈局]
+        - 初期單筆資金: {data['initial_input_wan']} 萬
+        - 每次分期投入: {data['periodic_input_wan']} 萬 (實際扣款 {data['actual_dca_parts']} 次)
+        - 實際投入總本金: {data['actual_total_capital_wan']:.1f} 萬
+
+        [時間與基準]
+        - 模擬年限: {data['sim_years']} 年 ({data['api_label']})
+        - 買入頻率: 每 {data['dca_interval_months']} 個月
+        - 定存基準線: {data['bank_value_wan']:.1f} 萬 (利率 {data['risk_free_rate']}%)
+
+        [進階策略設定]
+        - 模擬標的: {data['ticker']}
+        {adv_setting}
+        - 槓桿與危機入市: 槓桿 {data['lev_mult']}x (耗損 {data['drag_annual']*100:.1f}%) / 大盤跌 {data['drop_threshold']*100:.0f}% 換 {data['transfer_pct']*100:.0f}% 槓桿
         """
         for line in params_txt.strip().split('\n'):
-            pdf.cell(0, 6, line.strip(), ln=True)
+            pdf.cell(0, 5, line.strip(), ln=True)
         
         pdf.ln(3)
 
-        # 🌟 補入實驗室與 6 大策略說明
         pdf.set_font('NotoSans', '', 9)
         desc_txt = """
-        【實驗室說明與 6 大策略邏輯】
-        * 1. 一般散戶 (100% 基準)： 全數買入 1 倍大盤，最真實的散戶對照組。
-        * 2. 激進賭徒 (100% 槓桿)： 全數買入 2 倍槓桿，測試爆倉與暴富極限。
-        * 3. 保守定存 (50/50 持有)： 50% 買大盤，50% 放銀行定存不投入股市。
-        * 4. 紀律經理 (50/50 再平衡)： 50% 大盤搭配 50% 槓桿，每年底強制停利停損，將比例拉回 1:1。
-        * 5. 危機入市 (階梯換槓桿)： 100% 買大盤，當大盤依級距重挫時，分批賣大盤轉買槓桿抄底。
-        * 6. 時空旅人 (神明對照組)： 向神明借未來所有的錢，第一天將總成本直接歐印大盤。
+        [實驗室說明與 6 大策略邏輯]
+        * 1. 一般散戶 (100% 基準): 全數買入 1 倍大盤，最真實的散戶對照組。
+        * 2. 激進賭徒 (100% 槓桿): 全數買入 2 倍槓桿，測試爆倉與暴富極限。
+        * 3. 保守定存 (50/50 持有): 50% 買大盤，50% 放銀行定存不投入股市。
+        * 4. 紀律經理 (50/50 再平衡): 50% 大盤搭配 50% 槓桿，每年底強制停利停損，將比例拉回 1:1。
+        * 5. 危機入市 (階梯換槓桿): 100% 買大盤，當大盤依級距重挫時，分批賣大盤轉買槓桿抄底。
+        * 6. 時空旅人 (神明對照組): 向神明借未來所有的錢，第一天將總成本直接歐印大盤。
         """
-        pdf.multi_cell(0, 5, desc_txt.strip())
+        pdf.multi_cell(0, 4, desc_txt.strip())
         pdf.ln(5)
 
-        # 🌟 瘦身版精美表格圖片渲染
         pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR)對照表", ln=True, align="L")
         
@@ -488,7 +503,7 @@ if st.session_state['sim_done']:
         
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(11)
-        tbl.scale(1, 4.5) # 空間釋放：把格子拉高，讓換行文字能舒服地住進去
+        tbl.scale(1, 4.5) 
         
         for (i, j), cell in tbl.get_celld().items():
             if i == 0:
@@ -503,7 +518,7 @@ if st.session_state['sim_done']:
             pdf.image(tmp_tbl.name, x=10, w=190)
         plt.close(fig_tbl)
             
-        pdf.add_page() # 因為首頁資訊變多，圖表自動換到第二頁
+        pdf.add_page() 
         pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 10, "📈 終值分佈與年化報酬率盒鬚圖", ln=True, align="L")
         
