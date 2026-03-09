@@ -9,7 +9,6 @@ from datetime import datetime
 import matplotlib.font_manager as fm
 import os
 import tempfile
-import urllib.request
 
 # ==========================================
 # 0. 字體設定與日期解封 (Streamlit Cloud 專用版)
@@ -23,22 +22,6 @@ min_date = datetime(2000, 1, 1).date()
 # 🌟 初始化 Session State 保險箱
 if 'sim_done' not in st.session_state:
     st.session_state['sim_done'] = False
-
-# ==========================================
-# 🌟 自動下載開源中文字型 (專治 Streamlit Cloud 亂碼)
-# ==========================================
-@st.cache_resource(show_spinner=False)
-def get_chinese_font_path():
-    font_filename = "NotoSansTC-Regular.ttf"
-    # 如果檔案不存在，就從 Google Fonts 下載
-    if not os.path.exists(font_filename):
-        try:
-            url = "https://github.com/google/fonts/raw/main/ofl/notosanstc/NotoSansTC-Regular.ttf"
-            urllib.request.urlretrieve(url, font_filename)
-        except Exception as e:
-            st.warning("⚠️ 無法下載中文字型，PDF 可能會無法顯示中文。")
-            return None
-    return font_filename
 
 # ==========================================
 # 1. 網頁標題與說明書面板
@@ -423,7 +406,7 @@ if st.session_state['sim_done']:
         st.pyplot(fig2)
 
     # ==========================================
-    # 🌟 匯出 PDF 報告按鈕區
+    # 🌟 匯出 PDF 報告按鈕區 (實體綁定防護版)
     # ==========================================
     st.divider()
     st.markdown("### 📄 實驗室報告輸出")
@@ -432,27 +415,27 @@ if st.session_state['sim_done']:
         try:
             from fpdf import FPDF
         except ImportError:
-            st.error("❌ 找不到 FPDF 套件，請記得在 GitHub 的 requirements.txt 加入 `fpdf2`")
+            st.error("❌ 找不到 FPDF 套件，請確認已安裝 fpdf2。")
+            return None
+            
+        # 🛡️ 實體字型檢查防護網
+        font_path = "NotoSansTC-Regular.ttf"
+        if not os.path.exists(font_path):
+            st.error("❌ 找不到實體中文字型檔！請確保您已經將 `NotoSansTC-Regular.ttf` 上傳至 GitHub 與 `monte_carlo.py` 同一個資料夾中。")
             return None
             
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         
-        # 載入自動下載的字型
-        font_path = get_chinese_font_path()
-        has_zh_font = False
-        if font_path and os.path.exists(font_path):
-            pdf.add_font('NotoSans', '', font_path, uni=True)
-            pdf.set_font('NotoSans', '', 16)
-            has_zh_font = True
-        else:
-            pdf.set_font('Arial', 'B', 16)
+        # 載入實體字型
+        pdf.add_font('NotoSans', '', font_path, uni=True)
+        pdf.set_font('NotoSans', '', 16)
             
         # 寫入標題與參數
-        title = "蒙地卡羅量化回測實驗室 - 分析報告" if has_zh_font else "Monte Carlo Simulation Report"
+        title = "蒙地卡羅量化回測實驗室 - 分析報告"
         pdf.cell(0, 10, title, ln=True, align="C")
-        pdf.set_font('NotoSans' if has_zh_font else 'Arial', '', 12)
+        pdf.set_font('NotoSans', '', 12)
         pdf.ln(5)
         
         params_txt = f"""
@@ -508,7 +491,7 @@ if st.session_state['sim_done']:
             df_export = pd.DataFrame({
                 'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
                 '大盤單日報酬': data['m_B_sub'][:, i] - 1, '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
-                '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
+                '1. 一般散戶': data['hist_v1'][:, i], '2. 激賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
                 '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
             })
             cols[i].download_button(f"📥 下載 {label}", df_export.to_csv(index=False).encode('utf-8-sig'), f"Universe_{label.split(' ')[0]}.csv", "text/csv")
