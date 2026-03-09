@@ -357,6 +357,7 @@ if st.session_state['sim_done']:
         if fv <= 0: return -100.0
         return ((fv / pv) ** (1 / years) - 1) * 100
 
+    # 🌟 表格數據生成區 (加入「年化報酬率」明確備註)
     stats = []
     df_res_van = data['df_res_van']
     for col in df_res_van.columns:
@@ -367,11 +368,11 @@ if st.session_state['sim_done']:
         stats.append({
             '策略': col,
             '勝率(贏定存)': f"{win_rate:.1f}%",
-            '最糟 Min': f"{v_min:,.1f} 萬 ({calc_cagr(v_min, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '較差 Q1': f"{v_q1:,.1f} 萬 ({calc_cagr(v_q1, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '中位 Median': f"{v_med:,.1f} 萬 ({calc_cagr(v_med, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '較佳 Q3': f"{v_q3:,.1f} 萬 ({calc_cagr(v_q3, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
-            '最佳 Max': f"{v_max:,.1f} 萬 ({calc_cagr(v_max, data['actual_total_capital_wan'], data['sim_years']):.1f}%)"
+            '最糟 Min': f"{v_min:,.1f}萬\n(年化報酬率 {calc_cagr(v_min, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '較差 Q1': f"{v_q1:,.1f}萬\n(年化報酬率 {calc_cagr(v_q1, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '中位 Median': f"{v_med:,.1f}萬\n(年化報酬率 {calc_cagr(v_med, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '較佳 Q3': f"{v_q3:,.1f}萬\n(年化報酬率 {calc_cagr(v_q3, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
+            '最佳 Max': f"{v_max:,.1f}萬\n(年化報酬率 {calc_cagr(v_max, data['actual_total_capital_wan'], data['sim_years']):.1f}%)"
         })
         
     st.markdown("#### 🏆 策略終值與年化報酬率對照表")
@@ -406,7 +407,7 @@ if st.session_state['sim_done']:
         st.pyplot(fig2)
 
     # ==========================================
-    # 🌟 匯出 PDF 報告按鈕區 (實體綁定防護版)
+    # 🌟 匯出 PDF 報告按鈕區 (圖表+精美表格完全體)
     # ==========================================
     st.divider()
     st.markdown("### 📄 實驗室報告輸出")
@@ -418,7 +419,6 @@ if st.session_state['sim_done']:
             st.error("❌ 找不到 FPDF 套件，請確認已安裝 fpdf2。")
             return None
             
-        # 🛡️ 實體字型檢查防護網
         font_path = "NotoSansTC-Regular.ttf"
         if not os.path.exists(font_path):
             st.error("❌ 找不到實體中文字型檔！請確保您已經將 `NotoSansTC-Regular.ttf` 上傳至 GitHub 與 `monte_carlo.py` 同一個資料夾中。")
@@ -428,11 +428,9 @@ if st.session_state['sim_done']:
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         
-        # 載入實體字型
         pdf.add_font('NotoSans', '', font_path, uni=True)
         pdf.set_font('NotoSans', '', 16)
             
-        # 寫入標題與參數
         title = "蒙地卡羅量化回測實驗室 - 分析報告"
         pdf.cell(0, 10, title, ln=True, align="C")
         pdf.set_font('NotoSans', '', 12)
@@ -447,11 +445,44 @@ if st.session_state['sim_done']:
         """
         for line in params_txt.strip().split('\n'):
             pdf.cell(0, 8, line.strip(), ln=True)
+        
+        pdf.ln(5)
+        pdf.set_font('NotoSans', '', 14)
+        pdf.cell(0, 10, "🏆 策略終值與年化報酬率對照表", ln=True, align="L")
+        
+        # 🌟 將數據 DataFrame 轉換為 Matplotlib 精美表格圖片
+        fig_tbl, ax_tbl = plt.subplots(figsize=(16, 5))
+        ax_tbl.axis('off')
+        
+        df_render = df_stats.reset_index()
+        tbl = ax_tbl.table(cellText=df_render.values,
+                           colLabels=df_render.columns,
+                           loc='center',
+                           cellLoc='center')
+        
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(10)
+        tbl.scale(1, 3.5) # 拉高儲存格，讓多行文字完美顯示
+        
+        # 幫表格塗上專業的配色
+        for (i, j), cell in tbl.get_celld().items():
+            if i == 0:
+                cell.set_facecolor('#4C72B0')
+                cell.set_text_props(color='white', weight='bold')
+            elif j == 0:
+                cell.set_facecolor('#EAEAEA')
+                cell.set_text_props(weight='bold')
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_tbl:
+            fig_tbl.savefig(tmp_tbl.name, format="png", bbox_inches="tight", dpi=200)
+            pdf.image(tmp_tbl.name, x=10, w=190)
+        plt.close(fig_tbl) # 釋放記憶體
             
-        # 存檔圖表為暫存檔並貼上 PDF
+        pdf.ln(5)
+        pdf.cell(0, 10, "📈 終值分佈與年化報酬率盒鬚圖", ln=True, align="L")
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile1:
             fig1.savefig(tmpfile1.name, format="png", bbox_inches="tight", dpi=150)
-            pdf.ln(5)
             pdf.image(tmpfile1.name, x=10, w=190)
             
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile2:
@@ -459,10 +490,8 @@ if st.session_state['sim_done']:
             pdf.ln(5)
             pdf.image(tmpfile2.name, x=10, w=190)
             
-        # 輸出字節碼
         return bytes(pdf.output())
 
-    # 生成 PDF 下載按鈕
     with st.spinner("準備 PDF 報告中..."):
         pdf_bytes = generate_pdf()
         if pdf_bytes:
@@ -475,7 +504,7 @@ if st.session_state['sim_done']:
             )
 
     # ==========================================
-    # 🌟 開發者專區 (下載不再閃退！)
+    # 🌟 開發者專區
     # ==========================================
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
@@ -491,7 +520,7 @@ if st.session_state['sim_done']:
             df_export = pd.DataFrame({
                 'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
                 '大盤單日報酬': data['m_B_sub'][:, i] - 1, '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
-                '1. 一般散戶': data['hist_v1'][:, i], '2. 激賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
+                '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
                 '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
             })
             cols[i].download_button(f"📥 下載 {label}", df_export.to_csv(index=False).encode('utf-8-sig'), f"Universe_{label.split(' ')[0]}.csv", "text/csv")
