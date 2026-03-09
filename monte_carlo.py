@@ -13,9 +13,8 @@ import platform
 # ==========================================
 # 0. 字體設定與日期解封 (Streamlit Cloud 專用版)
 # ==========================================
-# 直接呼叫透過 packages.txt 安裝的系統級開源中文字體
 plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC', 'Noto Sans CJK JP', 'Microsoft JhengHei', 'PingFang TC']
-plt.rcParams['axes.unicode_minus'] = False  # 確保負號正常顯示
+plt.rcParams['axes.unicode_minus'] = False  
 
 today = datetime.now().date()
 min_date = datetime(2000, 1, 1).date()
@@ -25,21 +24,13 @@ min_date = datetime(2000, 1, 1).date()
 # ==========================================
 st.set_page_config(page_title="蒙地卡羅回測實驗室", layout="wide", initial_sidebar_state="expanded")
 st.title("🔬 蒙地卡羅量化回測實驗室 (實戰對決版)")
-st.markdown("完美結合**「初期單筆資金」**與**「自訂次數的分期資金」**。加入**定存機會成本**與**雙資料庫交叉比對**，真實還原你的資金流在各種平行宇宙中，是否值得承擔股市風險！")
+st.markdown("完美結合**「初期單筆資金」**與**「自訂次數的分期資金」**。加入**定存機會成本**與**雙源共識除錯引擎**，真實還原你的資金流在各種平行宇宙中，是否值得承擔股市風險！")
 
 with st.expander("📖 實驗室說明與 6 大情境策略 (點擊展開)", expanded=False):
     st.markdown("""
     ### ⚙️ 資金流運作邏輯與勝率定義
     * **實際投入防呆**：若設定的分批次數超過模擬年限的極限，系統會自動截斷，只計算「實際有扣款」的真實總成本。
     * **勝率 (擊敗定存)**：系統會在背景同步模擬一個「無風險定存帳戶」。你的策略期末資產，必須大於「相同現金流放在銀行滾出來的本利和」，才會被判定為獲勝！
-
-    ---
-
-    ### 🦢 數學模型專屬參數：肥尾效應 (黑天鵝產生器)
-    當你使用「2. 數學模型 (GBM)」時，此數值決定了極端股災發生的機率（數值越小，極端事件越多）：
-    * **設定 3 ~ 5 (真實世界)**：最符合真實股市的預設值。平穩上漲中，偶爾會遇到金融海嘯等級的暴跌。
-    * **設定 2 (地獄級測試)**：黑天鵝滿天飛，市場極度恐慌。適合用來測試防禦型策略的抗壓極限。
-    * **設定 30 (象牙塔理論)**：完美的常態分配，幾乎不會發生股災。危機入市策略將很難等到便宜貨。
 
     ---
 
@@ -93,13 +84,13 @@ st.sidebar.info(f"💡 **真實投入分析**\n\n"
 
 st.sidebar.header("📅 歷史區間與標的")
 if "歷史" in engine:
-    api_source = st.sidebar.radio("📡 歷史資料庫來源", [
-        "1. Yahoo Finance (內建 >15% 極端值濾網)", 
-        "2. FinMind API (台股專用/已搭載除權息還原)"
+    # 🌟 升級為雙源共識融合引擎
+    api_source = st.sidebar.radio("📡 歷史資料庫引擎", [
+        "🔥 雙源共識融合 (FinMind 主體 + Yahoo 智能除錯)"
     ])
-    ticker = st.sidebar.text_input("輸入代碼 (兩者皆通)", value="0050.TW")
+    ticker = st.sidebar.text_input("輸入代碼", value="0050.TW")
     col1, col2 = st.sidebar.columns(2)
-    start_date = col1.date_input("開始", value=datetime(2008, 1, 1).date(), min_value=min_date, max_value=today)
+    start_date = col1.date_input("開始", value=datetime(2003, 6, 30).date(), min_value=min_date, max_value=today)
     end_date = col2.date_input("結束", value=today, min_value=min_date, max_value=today)
     block_size = st.sidebar.slider("區塊大小 (歷史連續天數)", 5, 60, 21)
 else:
@@ -114,77 +105,89 @@ drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20)
 transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
-# 3. 雙 API 資料下載與過濾模組 (完美輸出 Pandas Series)
+# 3. 雙源共識融合下載模組 (完美除蟲版)
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=600)
-def get_hist_data(tkr, start, end, source):
-    if "Yahoo" in source:
+def get_hist_data_consensus(tkr, start, end):
+    try:
+        # --- 步驟 1：下載 Yahoo 資料 (當作糾察隊) ---
+        df_y = pd.Series(dtype=float)
         try:
-            data = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
-            if data.empty: return None
-            if isinstance(data.columns, pd.MultiIndex):
-                rets = data['Close'].iloc[:, 0].pct_change().dropna()
-            else:
-                rets = data['Close'].pct_change().dropna()
+            data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
+            if not data_y.empty:
+                if isinstance(data_y.columns, pd.MultiIndex):
+                    df_y = data_y['Close'].iloc[:, 0].pct_change().dropna()
+                else:
+                    df_y = data_y['Close'].pct_change().dropna()
+        except:
+            pass
             
-            # Yahoo 濾水器：把絕對值 > 15% 的離譜漲跌幅設為 0
-            clean_rets = np.where(np.abs(rets) > 0.15, 0.0, rets)
-            return pd.Series(clean_rets, index=rets.index)
-        except Exception as e:
-            return None
-            
-    elif "FinMind" in source:
+        # --- 步驟 2：下載 FinMind 資料 (當作主體，因為歷史夠長) ---
+        df_f = pd.Series(dtype=float)
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
             
-            # 1. 抓取歷史股價
+            # 抓股價
             url = "https://api.finmindtrade.com/api/v4/data"
-            params_price = {
-                "dataset": "TaiwanStockPrice",
-                "data_id": clean_tkr,
-                "start_date": start.strftime("%Y-%m-%d"),
-                "end_date": end.strftime("%Y-%m-%d")
-            }
+            params_price = {"dataset": "TaiwanStockPrice", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
             res_price = requests.get(url, params=params_price).json()
-            if res_price.get("msg") != "success" or len(res_price.get("data", [])) == 0:
-                return None
+            
+            if res_price.get("msg") == "success" and len(res_price.get("data", [])) > 0:
+                df_price = pd.DataFrame(res_price["data"])
+                df_price['date'] = pd.to_datetime(df_price['date'])
+                df_price.set_index('date', inplace=True)
                 
-            df_price = pd.DataFrame(res_price["data"])
-            df_price['date'] = pd.to_datetime(df_price['date'])
-            df_price.set_index('date', inplace=True)
-            
-            # 2. 抓取除權息資料
-            params_div = {
-                "dataset": "TaiwanStockDividendResult",
-                "data_id": clean_tkr,
-                "start_date": start.strftime("%Y-%m-%d"),
-                "end_date": end.strftime("%Y-%m-%d")
-            }
-            res_div = requests.get(url, params=params_div).json()
-            df_price['dividend'] = 0.0 
-            
-            if res_div.get("msg") == "success" and len(res_div.get("data", [])) > 0:
-                df_div = pd.DataFrame(res_div["data"])
-                df_div['date'] = pd.to_datetime(df_div['date'])
-                df_div.set_index('date', inplace=True)
-                div_col = 'stock_and_cache_dividend' if 'stock_and_cache_dividend' in df_div.columns else df_div.columns[-1]
-                df_price = df_price.join(df_div[[div_col]], how='left')
-                df_price['dividend'] = df_price[div_col].fillna(0.0)
-            
-            # 3. 終極總報酬公式：(當日收盤價 + 股息) / 前一日收盤價 - 1
-            df_price['prev_close'] = df_price['close'].shift(1)
-            df_price['total_return'] = (df_price['close'] + df_price['dividend']) / df_price['prev_close'] - 1
-            
-            return df_price['total_return'].dropna()
-            
-        except Exception as e:
+                # 抓股息
+                params_div = {"dataset": "TaiwanStockDividendResult", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
+                res_div = requests.get(url, params=params_div).json()
+                df_price['dividend'] = 0.0 
+                
+                if res_div.get("msg") == "success" and len(res_div.get("data", [])) > 0:
+                    df_div = pd.DataFrame(res_div["data"])
+                    df_div['date'] = pd.to_datetime(df_div['date'])
+                    df_div.set_index('date', inplace=True)
+                    div_col = 'stock_and_cache_dividend' if 'stock_and_cache_dividend' in df_div.columns else df_div.columns[-1]
+                    df_price = df_price.join(df_div[[div_col]], how='left')
+                    df_price['dividend'] = df_price[div_col].fillna(0.0)
+                
+                # 算總報酬
+                df_price['prev_close'] = df_price['close'].shift(1)
+                df_price['total_return'] = (df_price['close'] + df_price['dividend']) / df_price['prev_close'] - 1
+                df_f = df_price['total_return'].dropna()
+        except:
+            pass
+
+        # --- 步驟 3：神級融合邏輯 (Consensus Engine) ---
+        if df_f.empty and df_y.empty:
             return None
+        
+        # 建立一個合併用的 DataFrame
+        df_merged = pd.DataFrame({'finmind': df_f, 'yahoo': df_y})
+        
+        # 以 FinMind 為主體，如果有缺值，用 Yahoo 補上
+        df_merged['final_return'] = df_merged['finmind'].fillna(df_merged['yahoo'])
+        
+        # 🚨 啟動極端值濾網：找出單日漲跌大於 15% 的異常值 (胖手指)
+        anomaly_mask = df_merged['final_return'].abs() > 0.15
+        
+        # 如果發生異常，優先拿 Yahoo 的正常數據來替換；如果 Yahoo 也異常或沒有資料，就強制歸零 (當作沒開盤)
+        for date in df_merged[anomaly_mask].index:
+            y_val = df_merged.loc[date, 'yahoo']
+            if pd.notna(y_val) and abs(y_val) <= 0.15:
+                df_merged.loc[date, 'final_return'] = y_val # 用正常的 Yahoo 數據替換核彈
+            else:
+                df_merged.loc[date, 'final_return'] = 0.0   # 強制歸零防禦
+                
+        return df_merged['final_return'].dropna()
+        
+    except Exception as e:
+        return None
 
 # ==========================================
 # 4. 核心運算區塊
 # ==========================================
 if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_width=True):
-    with st.spinner(f'⚙️ 正在進行第一階段平行宇宙運算...'):
+    with st.spinner(f'⚙️ 正在啟動雙源共識融合引擎...'):
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
         
@@ -194,9 +197,9 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         indices = None
         
         if "歷史" in engine:
-            raw_hist_series = get_hist_data(ticker, start_date, end_date, api_source)
+            raw_hist_series = get_hist_data_consensus(ticker, start_date, end_date)
             if raw_hist_series is None or len(raw_hist_series) < block_size:
-                st.error("❌ 無法載入歷史資料。請檢查日期、代碼或選擇的 API。")
+                st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
                 st.stop()
             
             rets = raw_hist_series.values.flatten()
@@ -356,7 +359,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     # ==========================================
     # 5. 產出報表與參數看板
     # ==========================================
-    api_label = api_source.split(' ')[1] if "歷史" in engine else "GBM"
+    api_label = "雙源共識引擎" if "歷史" in engine else "GBM"
     st.success(f"✅ 成功完成 {sim_years} 年蒙地卡羅模擬 ({api_label})！勝率是以打敗定存 ({risk_free_rate}%) 為基準。")
     
     st.markdown("### 📋 本次模擬參數設定")
@@ -439,7 +442,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             df_raw = raw_hist_series.reset_index()
             df_raw.columns = ['Date', 'Daily Return']
             csv_raw = df_raw.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(f"📥 下載 {api_label} 原始資料 (CSV)", csv_raw, f"raw_history_{api_label}.csv", "text/csv")
+            st.download_button(f"📥 下載 融合清洗後原始資料 (CSV)", csv_raw, f"raw_history_consensus.csv", "text/csv")
         else:
             st.info("目前使用 GBM 數學模型，無歷史真實報價資料可供下載。")
 
@@ -447,7 +450,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
 
         st.markdown("#### 2. 下載 5 大代表性宇宙的逐日明細 (以大盤終值排名)")
         st.write("系統已精準捕捉在 5000 次平行宇宙中，表現達到 **Worst, Q1, Median, Q3, Best** 的五條時間線。")
-        st.write("你可以點擊下方按鈕，下載該宇宙這幾千天以來的每一天淨值變化、大盤跌幅與資金軌跡！")
         
         cols = st.columns(5)
         for i, label in enumerate(target_labels):
@@ -468,4 +470,4 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             cols[i].download_button(f"📥 下載 {label}", csv_export, f"Universe_{label.split(' ')[0]}.csv", "text/csv")
 
 else:
-    st.info("👈 防呆機制與定存機會成本已上線！再也不會出現幽靈本金了。")
+    st.info("👈 雙源共識融合引擎已上線！準備好迎接最純淨的歷史回測了嗎？")
