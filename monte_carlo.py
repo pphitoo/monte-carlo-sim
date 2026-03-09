@@ -109,13 +109,14 @@ drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20)
 transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
-# 3. 雙源共識融合下載模組 (完美免疫時區衝突)
+# 3. 雙源共識融合下載模組 (源頭純淨宣告版)
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=600)
 def get_hist_data_consensus(tkr, start, end):
     try:
         # --- 步驟 1：下載 Yahoo 資料 ---
-        df_y = pd.Series(dtype=float)
+        # 🌟 修復 B：嚴格宣告時間索引，杜絕型態降級
+        df_y = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
             if not data_y.empty:
@@ -124,14 +125,15 @@ def get_hist_data_consensus(tkr, start, end):
                 else:
                     df_y = data_y['Close'].pct_change().dropna()
                 
-                # 🌟 核心防護：強制剝離 Yahoo 資料的時區標籤，統一變成純日期，避免美股時區衝突
+                # 強制剝離 Yahoo 資料的時區標籤
                 if df_y.index.tz is not None:
                     df_y.index = df_y.index.tz_localize(None)
         except:
             pass
             
         # --- 步驟 2：下載 FinMind 資料 ---
-        df_f = pd.Series(dtype=float)
+        # 🌟 修復 B：嚴格宣告時間索引，杜絕型態降級
+        df_f = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
             url = "https://api.finmindtrade.com/api/v4/data"
