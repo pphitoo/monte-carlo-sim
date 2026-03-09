@@ -100,7 +100,6 @@ else:
     ticker = "數學模型 (無特定標的)"
     mu_base = st.sidebar.number_input("基準標的 預期年報酬 (%)", value=10.0) / 100
     sig_base = st.sidebar.number_input("基準標的 年化波動率 (%)", value=16.0) / 100
-    # 🌟 優化：將肥尾效應強度改為 0.5 級距，並允許小數
     df_t = st.sidebar.slider("肥尾效應強度 (t分配)", min_value=2.0, max_value=30.0, value=3.0, step=0.5)
 
 st.sidebar.header("🛠️ 槓桿與抄底微調")
@@ -115,7 +114,6 @@ transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 10
 @st.cache_data(show_spinner=False, ttl=600)
 def get_hist_data_consensus(tkr, start, end):
     try:
-        # --- 步驟 1：下載 Yahoo 資料 ---
         df_y = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
@@ -125,13 +123,11 @@ def get_hist_data_consensus(tkr, start, end):
                 else:
                     df_y = data_y['Close'].pct_change().dropna()
                 
-                # 強制剝離 Yahoo 資料的時區標籤
                 if df_y.index.tz is not None:
                     df_y.index = df_y.index.tz_localize(None)
         except:
             pass
             
-        # --- 步驟 2：下載 FinMind 資料 ---
         df_f = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
@@ -162,15 +158,11 @@ def get_hist_data_consensus(tkr, start, end):
         except:
             pass
 
-        # --- 步驟 3：建立對照表 ---
         if df_f.empty and df_y.empty:
             return None
         
         df_merged = pd.DataFrame({'FinMind_Raw': df_f, 'Yahoo_Raw': df_y})
-        
-        # 預設採用 FinMind，缺漏由 Yahoo 補上
         df_merged['Final_Consensus'] = df_merged['FinMind_Raw'].fillna(df_merged['Yahoo_Raw'])
-        
         anomaly_mask = df_merged['Final_Consensus'].abs() > 0.15
         
         for date in df_merged[anomaly_mask].index:
@@ -347,7 +339,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             sub_dates[:] = "N/A"
             sub_blocks[:] = "N/A"
 
-        # 🚀 將所有的運算結果打包存入 Session State 保險箱
         st.session_state['sim_data'] = {
             'df_res_van': df_res_van,
             'api_label': "雙源共識引擎" if "歷史" in engine else "GBM",
@@ -364,7 +355,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'end_date': end_date if "歷史" in engine else None,
             'mu_base': mu_base if "歷史" not in engine else None,
             'sig_base': sig_base if "歷史" not in engine else None,
-            # 🌟 寫入新參數
             'df_t': df_t if "歷史" not in engine else None,
             'lev_mult': lev_mult,
             'drag_annual': drag_annual,
@@ -410,7 +400,6 @@ if st.session_state['sim_done']:
             st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}**")
         else:
             st.write(f"- 預期報酬/波動：**{data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}%**")
-            # 🌟 優化：加上肥尾效應強度的防呆解說
             st.write(f"- 肥尾效應強度：**{data['df_t']}** (數值越小，極端股災機率越高)")
         st.write(f"- 槓桿與危機入市：**{data['lev_mult']}x** (跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**)")
     
@@ -446,23 +435,50 @@ if st.session_state['sim_done']:
     st.info("💡 括號內為 **(換算總成本年化報酬率 CAGR)**。注意：除時空旅人外，其他策略為分期投入，此年化報酬率代表「將現金閒置的機會成本一併計入」的嚴格總體年化標準。")
     st.dataframe(pd.DataFrame(stats).set_index('策略'), use_container_width=True)
     
-    st.subheader(f"📈 {data['sim_years']} 年期終值分佈密度圖 (萬為單位)")
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for col in df_res_van.columns:
-        sns.kdeplot(df_res_van[col], ax=ax, label=col, fill=True, alpha=0.15, linewidth=2)
+    # ==========================================
+    # 🌟 升級版：雙圖並列視覺面板 (密度圖 vs CAGR盒鬚圖)
+    # ==========================================
+    st.subheader(f"📈 {data['sim_years']} 年期：終值分佈 vs 年化報酬率(CAGR) 盒鬚圖")
+    fig_col1, fig_col2 = st.columns(2)
     
-    ax.axvline(data['actual_total_capital_wan'], color='gray', linestyle=':', label=f"實際總成本 ({data['actual_total_capital_wan']:.0f} 萬)", zorder=10)
-    ax.axvline(data['bank_value_wan'], color='red', linestyle='--', label=f"定存基準線 ({data['bank_value_wan']:.0f} 萬)", zorder=10)
-    
-    title_prefix = f"Historical Block ({data['api_label']})" if "歷史" in data['engine'] else "GBM Fat-Tail"
-    ax.set_title(f"Monte Carlo Simulation: {data['sim_years']}-Year Asset Distribution ({title_prefix})", fontsize=14)
-    ax.set_xlabel('Final Asset Value (萬 TWD)', fontsize=12) 
-    ax.set_ylabel('Density', fontsize=12)
-    x_max = np.percentile(df_res_van.values, 95) * 1.5
-    ax.set_xlim(0, max(x_max, data['actual_total_capital_wan'] * 2.5))
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    st.pyplot(fig)
+    with fig_col1:
+        fig1, ax1 = plt.subplots(figsize=(10, 6))
+        for col in df_res_van.columns:
+            sns.kdeplot(df_res_van[col], ax=ax1, label=col, fill=True, alpha=0.15, linewidth=2)
+        
+        ax1.axvline(data['actual_total_capital_wan'], color='gray', linestyle=':', label=f"實際總成本 ({data['actual_total_capital_wan']:.0f} 萬)", zorder=10)
+        ax1.axvline(data['bank_value_wan'], color='red', linestyle='--', label=f"定存基準線 ({data['bank_value_wan']:.0f} 萬)", zorder=10)
+        
+        title_prefix = f"Historical Block ({data['api_label']})" if "歷史" in data['engine'] else "GBM Fat-Tail"
+        ax1.set_title(f"Final Asset Value Distribution Density", fontsize=14)
+        ax1.set_xlabel('Final Asset Value (萬 TWD)', fontsize=12) 
+        ax1.set_ylabel('Density', fontsize=12)
+        x_max = np.percentile(df_res_van.values, 95) * 1.5
+        ax1.set_xlim(0, max(x_max, data['actual_total_capital_wan'] * 2.5))
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        st.pyplot(fig1)
+
+    with fig_col2:
+        fig2, ax2 = plt.subplots(figsize=(10, 6))
+        
+        # 準備 CAGR 資料矩陣供盒鬚圖使用 (防呆：最低以 0.0001 萬計，避免計算崩潰)
+        safe_res = np.maximum(df_res_van, 0.0001)
+        df_cagr = (safe_res / data['actual_total_capital_wan']) ** (1 / data['sim_years']) - 1
+        df_cagr = df_cagr * 100  # 轉成百分比
+        
+        sns.boxplot(data=df_cagr, ax=ax2, orient='h', palette='Set2', showfliers=True, 
+                    flierprops=dict(marker='o', markerfacecolor='gray', markersize=3, alpha=0.5))
+        
+        # 畫上無風險定存利率的基準線
+        ax2.axvline(data['risk_free_rate'], color='red', linestyle='--', label=f"定存利率基準 ({data['risk_free_rate']}%)", zorder=10)
+        
+        ax2.set_title("CAGR Distribution (Box Plot)", fontsize=14)
+        ax2.set_xlabel('CAGR (%)', fontsize=12)
+        ax2.set_ylabel('') # Y軸本身就是策略名稱，不需要額外標題
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        st.pyplot(fig2)
 
     # ==========================================
     # 🌟 開發者專區 (下載不再閃退！)
