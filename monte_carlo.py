@@ -218,6 +218,11 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
         
+        # 先宣告變數避免 Scope 報錯
+        m_B_sub = None
+        m_L_sub = None
+        m_multi_sub = None
+        
         # 🌟 針對不同引擎進行分流處理
         if "3." in engine:
             raw_assets = [(tkr1, w1), (tkr2, w2), (tkr3, w3)]
@@ -260,11 +265,14 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             rebal_days = rebal_months * 21
             hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
             
-            # 準備前 5 大極端宇宙的索引 (給開發者 CSV 下載用)
+            # 準備前 5 大極端宇宙的索引
             temp_final = np.ones(N)
-            for d in range(days): temp_final *= (1 + sim_ret_multi[d, :, 0]) # 粗略抓第一資產來找極端值
+            for d in range(days): temp_final *= (1 + sim_ret_multi[d, :, 0]) 
             sorted_args = np.argsort(temp_final)
             target_indices = [sorted_args[0], sorted_args[int(N * 0.25)], sorted_args[int(N * 0.50)], sorted_args[int(N * 0.75)], sorted_args[-1]]
+            
+            # 🚀 取出前五大極端宇宙的各資產原始單日報酬 (供開發者 CSV 下載驗證)
+            m_multi_sub = sim_ret_multi[:, target_indices, :]
             
             for d in range(days):
                 r_mult = 1 + sim_ret_multi[d] 
@@ -290,7 +298,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             })
             
             target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
-            hist_v4 = None; hist_v5 = None; hist_v6 = None # 引擎 3 不需這三個
+            hist_v4 = None; hist_v5 = None; hist_v6 = None
 
             sub_dates = np.empty((days, 5), dtype=object); sub_blocks = np.empty((days, 5), dtype=object)
             for col, og_idx in enumerate(target_indices):
@@ -371,6 +379,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             target_indices = [sorted_args[0], sorted_args[int(N * 0.25)], sorted_args[int(N * 0.50)], sorted_args[int(N * 0.75)], sorted_args[-1]]
             target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
 
+            # 🚀 取出前五大極端宇宙的原始單日報酬 (供開發者 CSV 下載驗證)
             m_B_sub = m_B[:, target_indices]
             m_L_sub = m_L[:, target_indices]
             
@@ -424,7 +433,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 sub_dates[:] = "N/A"
                 sub_blocks[:] = "N/A"
 
-        # 共用數據打包
+        # 共用數據打包存入保險箱
         df_res_van = df_res / 10000
         
         st.session_state['sim_data'] = {
@@ -434,6 +443,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'initial_input_wan': initial_input_wan, 'periodic_input_wan': periodic_input_wan,
             'actual_dca_parts': actual_dca_parts, 'actual_total_capital_wan': actual_total_capital_wan,
             'dca_interval_months': dca_interval_months, 'bank_value_wan': bank_value_wan,
+            # 引擎 1&2 參數
             'ticker': ticker if "3." not in engine else None, 
             'start_date': start_date if "2." not in engine else None,
             'end_date': end_date if "2." not in engine else None,
@@ -442,9 +452,13 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'df_t': df_t if "2." in engine else None, 'lev_mult': lev_mult if "3." not in engine else None, 
             'drag_annual': drag_annual if "3." not in engine else None,
             'drop_threshold': drop_threshold if "3." not in engine else None, 'transfer_pct': transfer_pct if "3." not in engine else None,
+            # 引擎 3 參數
             'valid_assets': valid_assets if "3." in engine else None,
             'weights_arr': weights_arr if "3." in engine else None,
             'rebal_months': rebal_months if "3." in engine else None,
+            
+            # 開發者除錯資料
+            'm_B_sub': m_B_sub, 'm_L_sub': m_L_sub, 'm_multi_sub': m_multi_sub,
             'target_labels': target_labels, 'sub_blocks': sub_blocks, 'sub_dates': sub_dates,
             'hist_v1': hist_v1, 'hist_v2': hist_v2, 'hist_v3': hist_v3,
             'hist_v4': hist_v4, 'hist_v5': hist_v5, 'hist_v6': hist_v6, 'days': days
@@ -575,7 +589,6 @@ if st.session_state['sim_done']:
         pdf.cell(0, 10, title, ln=True, align="C")
         pdf.ln(2)
         
-        # 🌟 PDF 參數還原：忠實垂直條列，自動適應三大引擎
         pdf.set_font('NotoSans', '', 11)
         
         if "3." in data['engine']:
@@ -677,7 +690,7 @@ if st.session_state['sim_done']:
             st.download_button(label="📥 下載 PDF 分析報告", data=pdf_bytes, file_name=f"MonteCarlo_Report_{data['engine'][:1]}.pdf", mime="application/pdf", type="primary")
 
     # ==========================================
-    # 🌟 開發者專區 (動態適應全引擎匯出)
+    # 🌟 開發者專區 (原始數據 100% 完整還原導出)
     # ==========================================
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
@@ -691,13 +704,27 @@ if st.session_state['sim_done']:
         cols = st.columns(5)
         for i, label in enumerate(data['target_labels']):
             if "3." in data['engine']:
-                df_export = pd.DataFrame({
-                    'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
-                    'A. 一般散戶': data['hist_v1'][:, i], 'B. 紀律再平衡': data['hist_v2'][:, i], 'C. 時空旅人': data['hist_v3'][:, i]
+                # 引擎 3 的動態明細導出：印出所有設定資產的原始單日報酬
+                export_dict = {
+                    'Day': np.arange(1, data['days'] + 1), 
+                    '抽樣區塊編號': data['sub_blocks'][:, i], 
+                    '歷史對應日期': data['sub_dates'][:, i]
+                }
+                # 迴圈加入每一檔資產的單日報酬
+                for a_idx, asset_name in enumerate(data['valid_assets']):
+                    export_dict[f'{asset_name} 單日報酬'] = data['m_multi_sub'][:, i, a_idx]
+                    
+                export_dict.update({
+                    'A. 一般散戶': data['hist_v1'][:, i], 
+                    'B. 紀律再平衡': data['hist_v2'][:, i], 
+                    'C. 時空旅人': data['hist_v3'][:, i]
                 })
+                df_export = pd.DataFrame(export_dict)
             else:
+                # 引擎 1 & 2 的明細導出：完美還原 `大盤單日報酬` 與 `槓桿單日報酬`
                 df_export = pd.DataFrame({
                     'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
+                    '大盤單日報酬': data['m_B_sub'][:, i] - 1, '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
                     '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
                     '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
                 })
