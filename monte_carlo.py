@@ -19,7 +19,6 @@ plt.rcParams['axes.unicode_minus'] = False
 today = datetime.now().date()
 min_date = datetime(2000, 1, 1).date()
 
-# 🌟 初始化 Session State 保險箱
 if 'sim_done' not in st.session_state:
     st.session_state['sim_done'] = False
 
@@ -27,29 +26,57 @@ if 'sim_done' not in st.session_state:
 # 1. 網頁標題與說明書面板
 # ==========================================
 st.set_page_config(page_title="蒙地卡羅回測實驗室", layout="wide", initial_sidebar_state="expanded")
-st.title("🔬 蒙地卡羅量化回測實驗室 (實戰對決版)")
+st.title("🔬 蒙地卡羅量化回測實驗室 (三引擎旗艦版)")
 st.markdown("完美結合**「初期單筆資金」**與**「自訂次數的分期資金」**。加入**定存機會成本**與**雙源共識除錯引擎**，真實還原你的資金流在各種平行宇宙中，是否值得承擔股市風險！")
 
-with st.expander("📖 實驗室說明與 6 大情境策略 (點擊展開)", expanded=False):
+with st.expander("📖 實驗室說明與策略邏輯 (點擊展開)", expanded=False):
     st.markdown("""
     ### ⚙️ 資金流運作邏輯與勝率定義
     * **實際投入防呆**：若設定的分批次數超過模擬年限的極限，系統會自動截斷，只計算「實際有扣款」的真實總成本。
-    * **勝率 (擊敗定存)**：系統會在背景同步模擬一個「無風險定存帳戶」。你的策略期末資產，必須大於「相同現金流放在銀行滾出來的本利和」，才會被判定為獲勝！
+    * **勝率 (擊敗定存)**：系統會在背景同步模擬一個「無風險定存帳戶」。期末資產必須大於「相同現金流放在銀行滾出來的本利和」，才會被判定為獲勝！
 
-    ### 📈 6 大策略人設與作法
-    * **1. 一般散戶**：全買大盤。
-    * **2. 激進賭徒**：全買 2 倍槓桿。
-    * **3. 保守定存**：一半買大盤，一半放銀行定存。
-    * **4. 紀律經理**：一半大盤，一半槓桿，每年再平衡。
-    * **5. 危機入市**：大盤下跌破級距換槓桿。
-    * **6. 時空旅人**：總成本第一天全下大盤。
+    ### 📈 引擎 1 & 2：單標的 6 大策略
+    * **1. 一般散戶**：全買大盤。 / **2. 激進賭徒**：全買 2 倍槓桿。
+    * **3. 保守定存**：一半大盤，一半定存。 / **4. 紀律經理**：一半大盤，一半槓桿，每年再平衡。
+    * **5. 危機入市**：大盤下跌破級距換槓桿。 / **6. 時空旅人**：總成本第一天全下大盤。
+
+    ### ⚖️ 引擎 3：多標的資產配置 3 大策略
+    * **A. 一般散戶 (放任漂流)**：依比例投入，永不再平衡，放任強勢資產膨脹。
+    * **B. 紀律再平衡 (自訂頻率)**：依設定的頻率 (例如每 12 個月)，強制將資產比例拉回初始配重 (停利低接)。
+    * **C. 時空旅人 (首日全下)**：向神明借未來所有的錢，第一天直接依比例歐印。
     """)
+
+# ==========================================
+# 🌟 雙源智能標的名稱查詢 (FinMind + Yahoo)
+# ==========================================
+@st.cache_data(show_spinner=False, ttl=86400)
+def get_ticker_name(tkr):
+    if not tkr: return ""
+    clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
+    try:
+        url = "https://api.finmindtrade.com/api/v4/data"
+        res = requests.get(url, params={"dataset": "TaiwanStockInfo", "data_id": clean_tkr}).json()
+        if res.get("msg") == "success" and len(res.get("data", [])) > 0:
+            return res["data"][0].get("stock_name", "")
+    except:
+        pass
+    try:
+        info = yf.Ticker(tkr).info
+        name = info.get("shortName", info.get("longName", ""))
+        if name: return name
+    except:
+        pass
+    return "未知名稱"
 
 # ==========================================
 # 2. 側邊欄：控制面板
 # ==========================================
 st.sidebar.title("⚙️ 控制面板")
-engine = st.sidebar.selectbox("🧠 模擬引擎", ["1. 歷史區塊抽樣 (Block)", "2. 數學模型 (GBM)"])
+engine = st.sidebar.selectbox("🧠 模擬引擎", [
+    "1. 歷史區塊抽樣 (單標的)", 
+    "2. 數學模型 (GBM)",
+    "3. 多標的投資組合 (資產配置)"
+])
 
 st.sidebar.header("💰 彈性資金與機會成本")
 initial_input_wan = st.sidebar.number_input("🏦 初期單筆資金 (萬)", min_value=0.0, value=100.0, step=10.0)
@@ -83,25 +110,54 @@ st.sidebar.info(f"💡 **真實投入分析**\n\n"
                 f"實際投入總本金：**{actual_total_capital_wan:.1f} 萬**\n\n"
                 f"🎯 **定存基準線**：**{bank_value_wan:.1f} 萬**")
 
-st.sidebar.header("📅 歷史區間與標的")
-if "歷史" in engine:
-    api_source = st.sidebar.radio("📡 歷史資料庫引擎", ["🔥 雙源共識融合 (FinMind 主體 + Yahoo 智能除錯)"])
-    ticker = st.sidebar.text_input("輸入代碼", value="0050.TW")
+# ==========================================
+# 🌟 根據選擇的引擎顯示對應的參數面板
+# ==========================================
+if "3." in engine:
+    st.sidebar.header("⚖️ 多標的配置 (最少2檔)")
+    col_t1, col_w1 = st.sidebar.columns([2, 1])
+    tkr1 = col_t1.text_input("資產 1", value="0050.TW")
+    w1 = col_w1.number_input("權重1", min_value=0, value=60)
+    if tkr1: st.sidebar.caption(f"🏷️ {get_ticker_name(tkr1)}")
+    
+    col_t2, col_w2 = st.sidebar.columns([2, 1])
+    tkr2 = col_t2.text_input("資產 2", value="00679B.TW")
+    w2 = col_w2.number_input("權重2", min_value=0, value=40)
+    if tkr2: st.sidebar.caption(f"🏷️ {get_ticker_name(tkr2)}")
+    
+    col_t3, col_w3 = st.sidebar.columns([2, 1])
+    tkr3 = col_t3.text_input("資產 3 (可選)", value="")
+    w3 = col_w3.number_input("權重3", min_value=0, value=0)
+    if tkr3: st.sidebar.caption(f"🏷️ {get_ticker_name(tkr3)}")
+    
+    rebal_months = st.sidebar.slider("🔄 策略B：再平衡頻率 (月)", min_value=1, max_value=60, value=12)
+    
     col1, col2 = st.sidebar.columns(2)
     start_date = col1.date_input("開始", value=datetime(2003, 6, 30).date(), min_value=min_date, max_value=today)
     end_date = col2.date_input("結束", value=today, min_value=min_date, max_value=today)
     block_size = st.sidebar.slider("區塊大小 (歷史連續天數)", 5, 60, 21)
+    
 else:
-    ticker = "數學模型 (無特定標的)"
-    mu_base = st.sidebar.number_input("基準標的 預期年報酬 (%)", value=10.0) / 100
-    sig_base = st.sidebar.number_input("基準標的 年化波動率 (%)", value=16.0) / 100
-    df_t = st.sidebar.slider("肥尾效應強度 (t分配)", min_value=2.0, max_value=30.0, value=3.0, step=0.5)
+    st.sidebar.header("📅 歷史區間與標的")
+    if "1." in engine:
+        api_source = st.sidebar.radio("📡 歷史資料庫引擎", ["🔥 雙源共識融合 (FinMind + Yahoo)"])
+        ticker = st.sidebar.text_input("輸入代碼", value="0050.TW")
+        if ticker: st.sidebar.caption(f"🏷️ {get_ticker_name(ticker)}")
+        col1, col2 = st.sidebar.columns(2)
+        start_date = col1.date_input("開始", value=datetime(2003, 6, 30).date(), min_value=min_date, max_value=today)
+        end_date = col2.date_input("結束", value=today, min_value=min_date, max_value=today)
+        block_size = st.sidebar.slider("區塊大小 (歷史連續天數)", 5, 60, 21)
+    else:
+        ticker = "數學模型 (無特定標的)"
+        mu_base = st.sidebar.number_input("預期年報酬 (%)", value=10.0) / 100
+        sig_base = st.sidebar.number_input("年化波動率 (%)", value=16.0) / 100
+        df_t = st.sidebar.slider("肥尾效應強度 (t分配)", min_value=2.0, max_value=30.0, value=3.0, step=0.5)
 
-st.sidebar.header("🛠️ 槓桿與抄底微調")
-lev_mult = st.sidebar.number_input("槓桿倍數", 1.0, 5.0, 2.0, 0.5)
-drag_annual = st.sidebar.slider("槓桿標的 年化耗損 (%)", 0.0, 10.0, 1.5) / 100
-drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20) / 100
-transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
+    st.sidebar.header("🛠️ 槓桿與抄底微調")
+    lev_mult = st.sidebar.number_input("槓桿倍數", 1.0, 5.0, 2.0, 0.5)
+    drag_annual = st.sidebar.slider("槓桿標的 年化耗損 (%)", 0.0, 10.0, 1.5) / 100
+    drop_threshold = st.sidebar.slider("策略 5 抄底觸發級距 (%)", 5, 50, 20) / 100
+    transfer_pct = st.sidebar.slider("策略 5 賣大盤換槓桿比例 (%)", 10, 100, 20) / 100
 
 # ==========================================
 # 3. 雙源共識融合下載模組
@@ -113,28 +169,22 @@ def get_hist_data_consensus(tkr, start, end):
         try:
             data_y = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
             if not data_y.empty:
-                if isinstance(data_y.columns, pd.MultiIndex):
-                    df_y = data_y['Close'].iloc[:, 0].pct_change().dropna()
-                else:
-                    df_y = data_y['Close'].pct_change().dropna()
-                if df_y.index.tz is not None:
-                    df_y.index = df_y.index.tz_localize(None)
-        except:
-            pass
+                if isinstance(data_y.columns, pd.MultiIndex): df_y = data_y['Close'].iloc[:, 0].pct_change().dropna()
+                else: df_y = data_y['Close'].pct_change().dropna()
+                if df_y.index.tz is not None: df_y.index = df_y.index.tz_localize(None)
+        except: pass
             
         df_f = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         try:
             clean_tkr = tkr.replace(".TW", "").replace(".TWO", "")
             url = "https://api.finmindtrade.com/api/v4/data"
-            params_price = {"dataset": "TaiwanStockPrice", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
-            res_price = requests.get(url, params=params_price).json()
+            res_price = requests.get(url, params={"dataset": "TaiwanStockPrice", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}).json()
             if res_price.get("msg") == "success" and len(res_price.get("data", [])) > 0:
                 df_price = pd.DataFrame(res_price["data"])
                 df_price['date'] = pd.to_datetime(df_price['date'])
                 df_price.set_index('date', inplace=True)
                 
-                params_div = {"dataset": "TaiwanStockDividendResult", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}
-                res_div = requests.get(url, params=params_div).json()
+                res_div = requests.get(url, params={"dataset": "TaiwanStockDividendResult", "data_id": clean_tkr, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d")}).json()
                 df_price['dividend'] = 0.0 
                 if res_div.get("msg") == "success" and len(res_div.get("data", [])) > 0:
                     df_div = pd.DataFrame(res_div["data"])
@@ -147,24 +197,18 @@ def get_hist_data_consensus(tkr, start, end):
                 df_price['prev_close'] = df_price['close'].shift(1)
                 df_price['total_return'] = (df_price['close'] + df_price['dividend']) / df_price['prev_close'] - 1
                 df_f = df_price['total_return'].dropna()
-        except:
-            pass
+        except: pass
 
-        if df_f.empty and df_y.empty:
-            return None
-        
+        if df_f.empty and df_y.empty: return None
         df_merged = pd.DataFrame({'FinMind_Raw': df_f, 'Yahoo_Raw': df_y})
         df_merged['Final_Consensus'] = df_merged['FinMind_Raw'].fillna(df_merged['Yahoo_Raw'])
         anomaly_mask = df_merged['Final_Consensus'].abs() > 0.15
         for date in df_merged[anomaly_mask].index:
             y_val = df_merged.loc[date, 'Yahoo_Raw']
-            if pd.notna(y_val) and abs(y_val) <= 0.15:
-                df_merged.loc[date, 'Final_Consensus'] = y_val 
-            else:
-                df_merged.loc[date, 'Final_Consensus'] = 0.0   
+            if pd.notna(y_val) and abs(y_val) <= 0.15: df_merged.loc[date, 'Final_Consensus'] = y_val 
+            else: df_merged.loc[date, 'Final_Consensus'] = 0.0   
         return df_merged.dropna(subset=['Final_Consensus'])
-    except Exception as e:
-        return None
+    except Exception: return None
 
 # ==========================================
 # 4. 核心運算區塊 
@@ -173,153 +217,166 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
     with st.spinner(f'⚙️ 正在啟動運算引擎...'):
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
-        sim_ret_base = np.zeros((days, N))
-        raw_hist_df = None
-        raw_dates = None
-        indices = None
         
-        if "歷史" in engine:
-            raw_hist_df = get_hist_data_consensus(ticker, start_date, end_date)
-            if raw_hist_df is None or len(raw_hist_df) < block_size:
-                st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
+        # 🌟 針對不同引擎進行分流處理
+        if "3." in engine:
+            # 取得有效標的與標準化權重
+            raw_assets = [(tkr1, w1), (tkr2, w2), (tkr3, w3)]
+            valid_assets = []
+            valid_weights = []
+            dfs = []
+            for tkr, w in raw_assets:
+                if tkr and w > 0:
+                    df = get_hist_data_consensus(tkr, start_date, end_date)
+                    if df is not None:
+                        dfs.append(df['Final_Consensus'].rename(tkr))
+                        valid_assets.append(tkr)
+                        valid_weights.append(w)
+            
+            if len(valid_assets) < 1:
+                st.error("❌ 無法載入任何標的資料，請檢查代碼或網路。")
                 st.stop()
-            rets = raw_hist_df['Final_Consensus'].values.flatten()
-            raw_dates = raw_hist_df.index.strftime('%Y-%m-%d').values
-            indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
+                
+            total_w = sum(valid_weights)
+            weights_arr = np.array([w/total_w for w in valid_weights])
+            num_assets = len(valid_assets)
+            
+            merged_df = pd.concat(dfs, axis=1).dropna() # Inner join 保留走勢相關性
+            rets_matrix = merged_df.values # (歷史天數, 資產數)
+            raw_dates = merged_df.index.strftime('%Y-%m-%d').values
+            
+            sim_ret_multi = np.zeros((days, N, num_assets))
+            indices = np.random.randint(0, len(rets_matrix)-block_size, (int(np.ceil(days/block_size)), N))
             for b in range(indices.shape[0]):
                 starts = indices[b,:]
                 for i in range(block_size):
                     d_idx = b * block_size + i
                     if d_idx < days: 
-                        sim_ret_base[d_idx, :] = rets[starts + i]
-        else:
-            Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -15, 15)
-            log_ret_base = (mu_base - 0.5 * sig_base**2) * dt + sig_base * np.sqrt(dt) * Z
-            sim_ret_base = np.exp(log_ret_base) - 1
+                        sim_ret_multi[d_idx, :, :] = rets_matrix[starts + i]
             
-        sim_ret_lev = (sim_ret_base * lev_mult) - (drag_annual/252)
-        m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
-
-        v1_base = np.ones(N) * initial_cap
-        v2_lev = np.ones(N) * initial_cap
-        v3_c = np.ones(N) * initial_cap * 0.5; v3_b = np.ones(N) * initial_cap * 0.5
-        v4_b = np.ones(N) * initial_cap * 0.5; v4_l = np.ones(N) * initial_cap * 0.5
-        v5_b = np.ones(N) * initial_cap; v5_l = np.zeros(N)
-        trig_level = np.zeros(N) 
-        v6_lumpsum = np.ones(N) * total_cap 
-        ath = np.ones(N) 
-
-        for d in range(days):
-            rb, rl = m_B[d], m_L[d]
-            v1_base *= rb; v2_lev *= rl
-            v3_c *= cash_growth; v3_b *= rb
-            v4_b *= rb; v4_l *= rl
-            if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
-            v5_b *= rb; v5_l *= rl
-            ath = np.maximum(ath, v6_lumpsum) 
-            dd = v6_lumpsum / ath
-            current_level = np.floor((1 - dd) / drop_threshold)
-            trig_level[dd == 1] = 0 
-            cond = current_level > trig_level 
-            if np.any(cond):
-                move = v5_b[cond] * transfer_pct
-                v5_b[cond] -= move
-                v5_l[cond] += move
-                trig_level[cond] = current_level[cond] 
-            v6_lumpsum *= rb
-            if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
-                v1_base += periodic_cap; v2_lev += periodic_cap
-                v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
-                v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
-                v5_b += periodic_cap 
-
-        df_res = pd.DataFrame({
-            '1. 一般散戶 (100% 基準)': v1_base, '2. 激進賭徒 (100% 槓桿)': v2_lev,
-            '3. 保守定存 (50/50 持有)': v3_c + v3_b, '4. 紀律經理 (50大盤/50槓桿)': v4_b + v4_l,
-            '5. 危機入市 (階梯換槓桿)': v5_b + v5_l, '6. 時空旅人 (總成本首日全下)': v6_lumpsum
-        })
-        df_res_van = df_res / 10000
-
-        # 🌟 4.5 捕捉五大代表性宇宙
-        final_vals = v1_base
-        sorted_args = np.argsort(final_vals)
-        target_indices = [sorted_args[0], sorted_args[int(N * 0.25)], sorted_args[int(N * 0.50)], sorted_args[int(N * 0.75)], sorted_args[-1]]
-        target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
-
-        m_B_sub = m_B[:, target_indices]
-        m_L_sub = m_L[:, target_indices]
-        
-        v1_s = np.ones(5) * initial_cap
-        v2_s = np.ones(5) * initial_cap
-        v3_c_s = np.ones(5) * initial_cap * 0.5; v3_b_s = np.ones(5) * initial_cap * 0.5
-        v4_b_s = np.ones(5) * initial_cap * 0.5; v4_l_s = np.ones(5) * initial_cap * 0.5
-        v5_b_s = np.ones(5) * initial_cap; v5_l_s = np.zeros(5)
-        trig_lvl_s = np.zeros(5)
-        v6_s = np.ones(5) * total_cap
-        ath_s = np.ones(5)
-        
-        hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
-        hist_v4 = np.zeros((days, 5)); hist_v5 = np.zeros((days, 5)); hist_v6 = np.zeros((days, 5))
-
-        for d in range(days):
-            rb, rl = m_B_sub[d], m_L_sub[d]
-            v1_s *= rb; v2_s *= rl
-            v3_c_s *= cash_growth; v3_b_s *= rb
-            v4_b_s *= rb; v4_l_s *= rl
-            if (d+1)%252==0: v4_b_s, v4_l_s = (v4_b_s+v4_l_s)*0.5, (v4_b_s+v4_l_s)*0.5
-            v5_b_s *= rb; v5_l_s *= rl
-            ath_s = np.maximum(ath_s, v6_s) 
-            dd = v6_s / ath_s
-            current_level = np.floor((1 - dd) / drop_threshold)
-            trig_lvl_s[dd == 1] = 0 
-            cond = current_level > trig_lvl_s 
-            if np.any(cond):
-                move = v5_b_s[cond] * transfer_pct
-                v5_b_s[cond] -= move
-                v5_l_s[cond] += move
-                trig_lvl_s[cond] = current_level[cond] 
-            v6_s *= rb
-            if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
-                v1_s += periodic_cap; v2_s += periodic_cap
-                v3_c_s += periodic_cap * 0.5; v3_b_s += periodic_cap * 0.5
-                v4_b_s += periodic_cap * 0.5; v4_l_s += periodic_cap * 0.5
-                v5_b_s += periodic_cap 
-
-            hist_v1[d] = v1_s / 10000; hist_v2[d] = v2_s / 10000; hist_v3[d] = (v3_c_s + v3_b_s) / 10000
-            hist_v4[d] = (v4_b_s + v4_l_s) / 10000; hist_v5[d] = (v5_b_s + v5_l_s) / 10000; hist_v6[d] = v6_s / 10000
-
-        sub_dates = np.empty((days, 5), dtype=object); sub_blocks = np.empty((days, 5), dtype=object)
-        if "歷史" in engine:
-            for col, og_idx in enumerate(target_indices):
+            v_A = np.ones((N, num_assets)) * initial_cap * weights_arr
+            v_B = np.ones((N, num_assets)) * initial_cap * weights_arr
+            v_C = np.ones((N, num_assets)) * total_cap * weights_arr
+            
+            val_A = np.zeros(N)
+            val_B = np.zeros(N)
+            val_C = np.zeros(N)
+            
+            rebal_days = rebal_months * 21
+            
+            for d in range(days):
+                r_mult = 1 + sim_ret_multi[d] # (N, num_assets)
+                v_A *= r_mult; v_B *= r_mult; v_C *= r_mult
+                
+                if (d + 1) % rebal_days == 0:
+                    total_B = np.sum(v_B, axis=1, keepdims=True)
+                    v_B = total_B * weights_arr # 強制再平衡
+                    
+                if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
+                    v_A += periodic_cap * weights_arr
+                    v_B += periodic_cap * weights_arr
+            
+            val_A = np.sum(v_A, axis=1)
+            val_B = np.sum(v_B, axis=1)
+            val_C = np.sum(v_C, axis=1)
+            
+            df_res = pd.DataFrame({
+                'A. 一般散戶 (放任漂流)': val_A,
+                'B. 紀律再平衡 (自訂頻率)': val_B,
+                'C. 時空旅人 (首日全下)': val_C
+            })
+            
+            target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
+            
+        else: # 引擎 1 或 2 原始邏輯
+            sim_ret_base = np.zeros((days, N))
+            raw_hist_df = None
+            raw_dates = None
+            indices = None
+            
+            if "1." in engine:
+                raw_hist_df = get_hist_data_consensus(ticker, start_date, end_date)
+                if raw_hist_df is None or len(raw_hist_df) < block_size:
+                    st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
+                    st.stop()
+                rets = raw_hist_df['Final_Consensus'].values.flatten()
+                raw_dates = raw_hist_df.index.strftime('%Y-%m-%d').values
+                indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
                 for b in range(indices.shape[0]):
-                    start = indices[b, og_idx]
+                    starts = indices[b,:]
                     for i in range(block_size):
                         d_idx = b * block_size + i
-                        if d_idx < days:
-                            sub_dates[d_idx, col] = raw_dates[start + i]
-                            sub_blocks[d_idx, col] = f"Block #{b+1}"
-        else:
-            sub_dates[:] = "N/A"
-            sub_blocks[:] = "N/A"
+                        if d_idx < days: 
+                            sim_ret_base[d_idx, :] = rets[starts + i]
+            else:
+                Z = np.clip(np.random.standard_t(df_t, (days, N)) * np.sqrt(1/3), -15, 15)
+                log_ret_base = (mu_base - 0.5 * sig_base**2) * dt + sig_base * np.sqrt(dt) * Z
+                sim_ret_base = np.exp(log_ret_base) - 1
+                
+            sim_ret_lev = (sim_ret_base * lev_mult) - (drag_annual/252)
+            m_B, m_L = np.maximum(0, 1+sim_ret_base), np.maximum(0, 1+sim_ret_lev)
 
-        # 🌟 確實把 block_size 加入 Session State，讓 PDF 抓得到
+            v1_base = np.ones(N) * initial_cap; v2_lev = np.ones(N) * initial_cap
+            v3_c = np.ones(N) * initial_cap * 0.5; v3_b = np.ones(N) * initial_cap * 0.5
+            v4_b = np.ones(N) * initial_cap * 0.5; v4_l = np.ones(N) * initial_cap * 0.5
+            v5_b = np.ones(N) * initial_cap; v5_l = np.zeros(N)
+            trig_level = np.zeros(N); v6_lumpsum = np.ones(N) * total_cap; ath = np.ones(N) 
+
+            for d in range(days):
+                rb, rl = m_B[d], m_L[d]
+                v1_base *= rb; v2_lev *= rl
+                v3_c *= cash_growth; v3_b *= rb
+                v4_b *= rb; v4_l *= rl
+                if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
+                v5_b *= rb; v5_l *= rl
+                ath = np.maximum(ath, v6_lumpsum) 
+                dd = v6_lumpsum / ath
+                current_level = np.floor((1 - dd) / drop_threshold)
+                trig_level[dd == 1] = 0 
+                cond = current_level > trig_level 
+                if np.any(cond):
+                    move = v5_b[cond] * transfer_pct
+                    v5_b[cond] -= move
+                    v5_l[cond] += move
+                    trig_level[cond] = current_level[cond] 
+                v6_lumpsum *= rb
+                if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
+                    v1_base += periodic_cap; v2_lev += periodic_cap
+                    v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
+                    v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
+                    v5_b += periodic_cap 
+
+            df_res = pd.DataFrame({
+                '1. 一般散戶 (100% 基準)': v1_base, '2. 激進賭徒 (100% 槓桿)': v2_lev,
+                '3. 保守定存 (50/50 持有)': v3_c + v3_b, '4. 紀律經理 (50大盤/50槓桿)': v4_b + v4_l,
+                '5. 危機入市 (階梯換槓桿)': v5_b + v5_l, '6. 時空旅人 (總成本首日全下)': v6_lumpsum
+            })
+            target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
+
+        # 共用數據打包
+        df_res_van = df_res / 10000
+        
         st.session_state['sim_data'] = {
-            'df_res_van': df_res_van, 'api_label': "雙源共識引擎" if "歷史" in engine else "GBM",
+            'df_res_van': df_res_van, 'engine': engine,
+            'api_label': "資產配置模組" if "3." in engine else ("雙源共識引擎" if "1." in engine else "GBM"),
             'sim_years': sim_years, 'risk_free_rate': risk_free_rate,
             'initial_input_wan': initial_input_wan, 'periodic_input_wan': periodic_input_wan,
             'actual_dca_parts': actual_dca_parts, 'actual_total_capital_wan': actual_total_capital_wan,
             'dca_interval_months': dca_interval_months, 'bank_value_wan': bank_value_wan,
-            'ticker': ticker, 'start_date': start_date if "歷史" in engine else None,
-            'end_date': end_date if "歷史" in engine else None,
-            'block_size': block_size if "歷史" in engine else None,
-            'mu_base': mu_base if "歷史" not in engine else None, 'sig_base': sig_base if "歷史" not in engine else None,
-            'df_t': df_t if "歷史" not in engine else None, 'lev_mult': lev_mult, 'drag_annual': drag_annual,
-            'drop_threshold': drop_threshold, 'transfer_pct': transfer_pct,
-            'raw_hist_df': raw_hist_df, 'engine': engine, 'target_labels': target_labels,
-            'sub_blocks': sub_blocks, 'sub_dates': sub_dates,
-            'm_B_sub': m_B_sub, 'm_L_sub': m_L_sub,
-            'hist_v1': hist_v1, 'hist_v2': hist_v2, 'hist_v3': hist_v3,
-            'hist_v4': hist_v4, 'hist_v5': hist_v5, 'hist_v6': hist_v6, 'days': days
+            # 引擎 1&2 參數
+            'ticker': ticker if "3." not in engine else None, 
+            'start_date': start_date if "2." not in engine else None,
+            'end_date': end_date if "2." not in engine else None,
+            'block_size': block_size if "2." not in engine else None,
+            'mu_base': mu_base if "2." in engine else None, 'sig_base': sig_base if "2." in engine else None,
+            'df_t': df_t if "2." in engine else None, 'lev_mult': lev_mult if "3." not in engine else None, 
+            'drag_annual': drag_annual if "3." not in engine else None,
+            'drop_threshold': drop_threshold if "3." not in engine else None, 'transfer_pct': transfer_pct if "3." not in engine else None,
+            # 引擎 3 參數
+            'valid_assets': valid_assets if "3." in engine else None,
+            'weights_arr': weights_arr if "3." in engine else None,
+            'rebal_months': rebal_months if "3." in engine else None,
+            'days': days
         }
         st.session_state['sim_done'] = True
 
@@ -329,7 +386,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
 if st.session_state['sim_done']:
     data = st.session_state['sim_data']
     
-    st.success(f"✅ 成功完成 {data['sim_years']} 年蒙地卡羅模擬 ({data['api_label']})！勝率是以打敗定存 ({data['risk_free_rate']}%) 為基準。")
+    st.success(f"✅ 成功完成 {data['sim_years']} 年蒙地卡羅模擬 ({data['api_label']})！")
     
     st.markdown("### 📋 本次模擬參數設定")
     p_col1, p_col2, p_col3 = st.columns(3)
@@ -344,14 +401,20 @@ if st.session_state['sim_done']:
         st.write(f"- 買入頻率：**每 {data['dca_interval_months']} 個月**")
         st.write(f"- 基準定存：**{data['bank_value_wan']:.1f} 萬** ({data['risk_free_rate']}%)")
     with p_col3:
-        st.markdown("**🛠️ 進階策略設定**")
-        st.write(f"- 模擬標的：**{data['ticker']}**")
-        if "歷史" in data['engine']:
-            st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}** (區塊大小 {data['block_size']} 天)")
+        st.markdown("**🛠️ 策略設定**")
+        if "3." in data['engine']:
+            for i, tkr in enumerate(data['valid_assets']):
+                st.write(f"- 資產 {i+1}：**{tkr}** ({data['weights_arr'][i]*100:.1f}%)")
+            st.write(f"- 再平衡頻率：**每 {data['rebal_months']} 個月**")
+            st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}** (區塊: {data['block_size']}天)")
+        elif "1." in data['engine']:
+            st.write(f"- 模擬標的：**{data['ticker']}**")
+            st.write(f"- 歷史區間：**{data['start_date']} ~ {data['end_date']}** (區塊: {data['block_size']}天)")
+            st.write(f"- 槓桿與抄底：**{data['lev_mult']}x** (耗損 {data['drag_annual']*100:.1f}%) / 跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**")
         else:
             st.write(f"- 預期報酬/波動：**{data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}%**")
-            st.write(f"- 肥尾效應強度：**{data['df_t']}** (數值越小，極端股災機率越高)")
-        st.write(f"- 槓桿與危機入市：**{data['lev_mult']}x** (耗損 {data['drag_annual']*100:.1f}%) / 跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**")
+            st.write(f"- 肥尾效應強度：**{data['df_t']}**")
+            st.write(f"- 槓桿與抄底：**{data['lev_mult']}x** (耗損 {data['drag_annual']*100:.1f}%) / 跌 **{data['drop_threshold']*100:.0f}%** 換 **{data['transfer_pct']*100:.0f}%**")
     
     st.divider() 
     
@@ -359,17 +422,15 @@ if st.session_state['sim_done']:
         if fv <= 0: return -100.0
         return ((fv / pv) ** (1 / years) - 1) * 100
 
-    # 🌟 表格數據瘦身優化
     stats = []
     df_res_van = data['df_res_van']
     
     strategy_map = {
-        '1. 一般散戶 (100% 基準)': '1. 一般散戶\n(100% 基準)',
-        '2. 激進賭徒 (100% 槓桿)': '2. 激進賭徒\n(100% 槓桿)',
-        '3. 保守定存 (50/50 持有)': '3. 保守定存\n(50/50 持有)',
-        '4. 紀律經理 (50大盤/50槓桿)': '4. 紀律經理\n(50/50再平衡)',
-        '5. 危機入市 (階梯換槓桿)': '5. 危機入市\n(階梯換槓桿)',
-        '6. 時空旅人 (總成本首日全下)': '6. 時空旅人\n(首日全下)'
+        '1. 一般散戶 (100% 基準)': '1. 一般散戶\n(100% 基準)', '2. 激進賭徒 (100% 槓桿)': '2. 激進賭徒\n(100% 槓桿)',
+        '3. 保守定存 (50/50 持有)': '3. 保守定存\n(50/50 持有)', '4. 紀律經理 (50大盤/50槓桿)': '4. 紀律經理\n(50/50再平衡)',
+        '5. 危機入市 (階梯換槓桿)': '5. 危機入市\n(階梯換槓桿)', '6. 時空旅人 (總成本首日全下)': '6. 時空旅人\n(首日全下)',
+        'A. 一般散戶 (放任漂流)': 'A. 一般散戶\n(放任漂流)', 'B. 紀律再平衡 (自訂頻率)': 'B. 紀律再平衡\n(自訂頻率)',
+        'C. 時空旅人 (首日全下)': 'C. 時空旅人\n(首日全下)'
     }
     
     for col in df_res_van.columns:
@@ -378,8 +439,7 @@ if st.session_state['sim_done']:
         v_min, v_q1, v_med, v_q3, v_max = np.min(d), np.percentile(d, 25), np.median(d), np.percentile(d, 75), np.max(d)
         
         stats.append({
-            '策略': strategy_map.get(col, col),
-            '勝率\n(贏定存)': f"{win_rate:.1f}%",
+            '策略': strategy_map.get(col, col), '勝率\n(贏定存)': f"{win_rate:.1f}%",
             '最糟 Min\n(萬 / CAGR)': f"{v_min:,.1f}\n({calc_cagr(v_min, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
             '較差 Q1\n(萬 / CAGR)': f"{v_q1:,.1f}\n({calc_cagr(v_q1, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
             '中位 Median\n(萬 / CAGR)': f"{v_med:,.1f}\n({calc_cagr(v_med, data['actual_total_capital_wan'], data['sim_years']):.1f}%)",
@@ -391,7 +451,6 @@ if st.session_state['sim_done']:
     df_stats = pd.DataFrame(stats).set_index('策略')
     st.dataframe(df_stats, use_container_width=True)
     
-    # 畫圖
     st.subheader(f"📈 {data['sim_years']} 年期：終值分佈 vs 年化報酬率(CAGR) 盒鬚圖")
     fig_col1, fig_col2 = st.columns(2)
     
@@ -399,7 +458,7 @@ if st.session_state['sim_done']:
         fig1, ax1 = plt.subplots(figsize=(10, 6))
         for col in df_res_van.columns:
             sns.kdeplot(df_res_van[col], ax=ax1, label=col, fill=True, alpha=0.15, linewidth=2)
-        ax1.axvline(data['actual_total_capital_wan'], color='gray', linestyle=':', label=f"實際總成本 ({data['actual_total_capital_wan']:.0f} 萬)", zorder=10)
+        ax1.axvline(data['actual_total_capital_wan'], color='gray', linestyle=':', label=f"總成本 ({data['actual_total_capital_wan']:.0f} 萬)", zorder=10)
         ax1.axvline(data['bank_value_wan'], color='red', linestyle='--', label=f"定存基準 ({data['bank_value_wan']:.0f} 萬)", zorder=10)
         ax1.set_title(f"Final Asset Value Distribution Density", fontsize=14)
         ax1.set_xlabel('Final Asset Value (萬 TWD)', fontsize=12); ax1.set_ylabel('Density', fontsize=12)
@@ -419,21 +478,20 @@ if st.session_state['sim_done']:
         st.pyplot(fig2)
 
     # ==========================================
-    # 🌟 匯出 PDF 報告按鈕區 (參數 100% 完整還原版)
+    # 🌟 匯出 PDF 報告按鈕區
     # ==========================================
     st.divider()
     st.markdown("### 📄 實驗室報告輸出")
     
     def generate_pdf():
-        try:
-            from fpdf import FPDF
+        try: from fpdf import FPDF
         except ImportError:
-            st.error("❌ 找不到 FPDF 套件，請確認已安裝 fpdf2。")
+            st.error("❌ 找不到 FPDF 套件。")
             return None
             
         font_path = "NotoSansTC-Regular.ttf"
         if not os.path.exists(font_path):
-            st.error("❌ 找不到實體中文字型檔！請確保您已經將 `NotoSansTC-Regular.ttf` 上傳至 GitHub 與 `monte_carlo.py` 同一個資料夾中。")
+            st.error("❌ 找不到實體中文字型檔 `NotoSansTC-Regular.ttf`！")
             return None
             
         pdf = FPDF(orientation="P", unit="mm", format="A4")
@@ -447,13 +505,40 @@ if st.session_state['sim_done']:
         pdf.cell(0, 10, title, ln=True, align="C")
         pdf.ln(2)
         
-        # 🌟 PDF 參數還原：忠實垂直條列，包含所有遺漏的日期與區塊設定
+        # 🌟 PDF 參數還原動態適應
         pdf.set_font('NotoSans', '', 11)
         
-        if "歷史" in data['engine']:
-            adv_setting = f"- 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)"
+        if "3." in data['engine']:
+            assets_str = " + ".join([f"{tkr}({w*100:.0f}%)" for tkr, w in zip(data['valid_assets'], data['weights_arr'])])
+            adv_setting = f"""
+            [資產配置與策略設定]
+            - 投資組合: {assets_str}
+            - 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)
+            - 再平衡頻率: 每 {data['rebal_months']} 個月強制再平衡
+            """
+            desc_txt = """
+            [引擎 3 專屬策略邏輯]
+            * A. 一般散戶 (放任漂流): 依比例投入，永不再平衡，放任強勢資產膨脹。
+            * B. 紀律再平衡 (自訂頻率): 依設定的頻率，強制將資產比例拉回初始配重 (停利低接)。
+            * C. 時空旅人 (首日全下): 向神明借未來所有的錢，第一天直接依比例歐印。
+            """
         else:
-            adv_setting = f"- 預期報酬/波動: {data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}% (肥尾強度: {data['df_t']})"
+            if "1." in data['engine']:
+                adv_str = f"- 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)"
+            else:
+                adv_str = f"- 預期報酬/波動: {data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}% (肥尾強度: {data['df_t']})"
+            adv_setting = f"""
+            [進階策略設定]
+            - 模擬標的: {data['ticker']}
+            {adv_str.strip()}
+            - 槓桿與危機入市: 槓桿 {data['lev_mult']}x (耗損 {data['drag_annual']*100:.1f}%) / 大盤跌 {data['drop_threshold']*100:.0f}% 換 {data['transfer_pct']*100:.0f}% 槓桿
+            """
+            desc_txt = """
+            [實驗室說明與 6 大策略邏輯]
+            * 1. 一般散戶: 全數買入 1 倍大盤。 / 2. 激進賭徒: 全數買入 2 倍槓桿。
+            * 3. 保守定存: 半大盤半定存。 / 4. 紀律經理: 50/50 股槓配置，每年底再平衡。
+            * 5. 危機入市: 跌破級距分批換槓桿。 / 6. 時空旅人: 總成本首日全下大盤。
+            """
 
         params_txt = f"""
         [資金佈局]
@@ -465,45 +550,28 @@ if st.session_state['sim_done']:
         - 模擬年限: {data['sim_years']} 年 ({data['api_label']})
         - 買入頻率: 每 {data['dca_interval_months']} 個月
         - 定存基準線: {data['bank_value_wan']:.1f} 萬 (利率 {data['risk_free_rate']}%)
-
-        [進階策略設定]
-        - 模擬標的: {data['ticker']}
         {adv_setting}
-        - 槓桿與危機入市: 槓桿 {data['lev_mult']}x (耗損 {data['drag_annual']*100:.1f}%) / 大盤跌 {data['drop_threshold']*100:.0f}% 換 {data['transfer_pct']*100:.0f}% 槓桿
         """
         for line in params_txt.strip().split('\n'):
-            pdf.cell(0, 5, line.strip(), ln=True)
+            if line.strip(): pdf.cell(0, 5, line.strip(), ln=True)
         
-        pdf.ln(3)
+        pdf.ln(2)
 
         pdf.set_font('NotoSans', '', 9)
-        desc_txt = """
-        [實驗室說明與 6 大策略邏輯]
-        * 1. 一般散戶 (100% 基準): 全數買入 1 倍大盤，最真實的散戶對照組。
-        * 2. 激進賭徒 (100% 槓桿): 全數買入 2 倍槓桿，測試爆倉與暴富極限。
-        * 3. 保守定存 (50/50 持有): 50% 買大盤，50% 放銀行定存不投入股市。
-        * 4. 紀律經理 (50/50 再平衡): 50% 大盤搭配 50% 槓桿，每年底強制停利停損，將比例拉回 1:1。
-        * 5. 危機入市 (階梯換槓桿): 100% 買大盤，當大盤依級距重挫時，分批賣大盤轉買槓桿抄底。
-        * 6. 時空旅人 (神明對照組): 向神明借未來所有的錢，第一天將總成本直接歐印大盤。
-        """
         pdf.multi_cell(0, 4, desc_txt.strip())
         pdf.ln(5)
 
         pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR)對照表", ln=True, align="L")
         
-        fig_tbl, ax_tbl = plt.subplots(figsize=(16, 5))
+        fig_tbl, ax_tbl = plt.subplots(figsize=(16, 4.5))
         ax_tbl.axis('off')
         
         df_render = df_stats.reset_index()
-        tbl = ax_tbl.table(cellText=df_render.values,
-                           colLabels=df_render.columns,
-                           loc='center',
-                           cellLoc='center')
-        
+        tbl = ax_tbl.table(cellText=df_render.values, colLabels=df_render.columns, loc='center', cellLoc='center')
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(11)
-        tbl.scale(1, 4.5) 
+        tbl.scale(1, 4.0) 
         
         for (i, j), cell in tbl.get_celld().items():
             if i == 0:
@@ -536,35 +604,7 @@ if st.session_state['sim_done']:
     with st.spinner("準備 PDF 報告中..."):
         pdf_bytes = generate_pdf()
         if pdf_bytes:
-            st.download_button(
-                label="📥 下載 PDF 分析報告",
-                data=pdf_bytes,
-                file_name=f"MonteCarlo_Report_{data['ticker']}.pdf",
-                mime="application/pdf",
-                type="primary"
-            )
-
-    # ==========================================
-    # 🌟 開發者專區
-    # ==========================================
-    st.divider()
-    with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
-        if "歷史" in data['engine'] and data['raw_hist_df'] is not None:
-            df_export_check = data['raw_hist_df'].reset_index()
-            if 'index' in df_export_check.columns: df_export_check.rename(columns={'index': 'Date'}, inplace=True)
-            elif 'date' in df_export_check.columns: df_export_check.rename(columns={'date': 'Date'}, inplace=True)
-            csv_check = df_export_check.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下載 雙引擎除錯對照表 (CSV)", csv_check, "consensus_history_check.csv", "text/csv")
-
-        cols = st.columns(5)
-        for i, label in enumerate(data['target_labels']):
-            df_export = pd.DataFrame({
-                'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
-                '大盤單日報酬': data['m_B_sub'][:, i] - 1, '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
-                '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
-                '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
-            })
-            cols[i].download_button(f"📥 下載 {label}", df_export.to_csv(index=False).encode('utf-8-sig'), f"Universe_{label.split(' ')[0]}.csv", "text/csv")
+            st.download_button(label="📥 下載 PDF 分析報告", data=pdf_bytes, file_name=f"MonteCarlo_Report_{data['engine'][:1]}.pdf", mime="application/pdf", type="primary")
 
 else:
     st.info("👈 防閃退記憶體保險箱已就緒！請在左側設定參數並點擊「開始實戰模擬」。")
