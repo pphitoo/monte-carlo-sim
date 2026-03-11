@@ -218,9 +218,12 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
         
+        # 🌟 修復：提早宣告所有可能用到的歷史變數，徹底避免 NameError
         m_B_sub = None; m_L_sub = None; m_multi_sub = None
         raw_hist_dict = {} 
+        hist_v4 = None; hist_v5 = None; hist_v6 = None 
         
+        # 🌟 針對不同引擎進行分流處理
         if "3." in engine:
             raw_assets = [(tkr1, w1), (tkr2, w2), (tkr3, w3)]
             valid_assets = []
@@ -261,6 +264,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             v_C = np.ones((N, num_assets)) * total_cap * weights_arr
             
             rebal_days = rebal_months * 21
+            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
             
             temp_final = np.ones(N)
             for d in range(days): temp_final *= (1 + sim_ret_multi[d, :, 0]) 
@@ -269,8 +273,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             
             m_multi_sub = sim_ret_multi[:, target_indices, :]
             
-            # 🌟 極致拆解：初始化第三引擎的歷史紀錄矩陣
-            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
+            # 第三引擎極致拆解紀錄矩陣
             hist_vA_assets = np.zeros((days, 5, num_assets))
             hist_vB_assets = np.zeros((days, 5, num_assets))
             hist_vC_assets = np.zeros((days, 5, num_assets))
@@ -365,9 +368,8 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 '1. 一般散戶 (100% 基準)': np.zeros(N), '2. 激進賭徒 (100% 槓桿)': np.zeros(N),
                 '3. 保守定存 (50/50 持有)': np.zeros(N), '4. 紀律經理 (50大盤/50槓桿)': np.zeros(N),
                 '5. 危機入市 (階梯換槓桿)': np.zeros(N), '6. 時空旅人 (總成本首日全下)': np.zeros(N)
-            }) # Placeholder
+            })
             
-            # 先跑一次算出最終結果找極端值
             temp_v1 = v1_base.copy()
             for d in range(days): temp_v1 *= np.maximum(0, 1+sim_ret_base[d])
             sorted_args = np.argsort(temp_v1)
@@ -377,7 +379,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             m_B_sub = m_B[:, target_indices]
             m_L_sub = m_L[:, target_indices]
             
-            # 🌟 極致拆解：初始化 5 大宇宙的歷史紀錄矩陣
             v1_s = np.ones(5) * initial_cap; v2_s = np.ones(5) * initial_cap
             v3_c_s = np.ones(5) * initial_cap * 0.5; v3_b_s = np.ones(5) * initial_cap * 0.5
             v4_b_s = np.ones(5) * initial_cap * 0.5; v4_l_s = np.ones(5) * initial_cap * 0.5
@@ -391,12 +392,10 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             hist_v5 = np.zeros((days, 5)); hist_v5_flag = np.zeros((days, 5), dtype=bool)
             hist_v6 = np.zeros((days, 5)); hist_dca_flag = np.zeros((days, 5), dtype=bool)
 
-            # 正式回測完整 N 次，順便把 5 大宇宙的每日拆解紀錄存起來
             for d in range(days):
                 rb, rl = m_B[d], m_L[d]
-                rbs, rls = m_B_sub[d], m_L_sub[d] # 5宇宙
+                rbs, rls = m_B_sub[d], m_L_sub[d] 
                 
-                # 處理全宇宙
                 v1_base *= rb; v2_lev *= rl
                 v3_c *= cash_growth; v3_b *= rb
                 v4_b *= rb; v4_l *= rl
@@ -411,7 +410,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                     trig_level[cond] = current_level[cond] 
                 v6_lumpsum *= rb
                 
-                # 處理 5 大宇宙的拆解驗算數據
                 v1_s *= rbs; v2_s *= rls
                 v3_c_s *= cash_growth; v3_b_s *= rbs
                 v4_b_s *= rbs; v4_l_s *= rls
@@ -432,19 +430,16 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 
                 dca_today = False
                 if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
-                    # 全宇宙入帳
                     v1_base += periodic_cap; v2_lev += periodic_cap
                     v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
                     v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
                     v5_b += periodic_cap 
-                    # 5大宇宙入帳
                     v1_s += periodic_cap; v2_s += periodic_cap
                     v3_c_s += periodic_cap * 0.5; v3_b_s += periodic_cap * 0.5
                     v4_b_s += periodic_cap * 0.5; v4_l_s += periodic_cap * 0.5
                     v5_b_s += periodic_cap 
                     dca_today = True
 
-                # 儲存明細歷史 (萬為單位)
                 hist_v1[d] = v1_s / 10000; hist_v2[d] = v2_s / 10000
                 hist_v3_c[d] = v3_c_s / 10000; hist_v3_b[d] = v3_b_s / 10000; hist_v3[d] = (v3_c_s + v3_b_s) / 10000
                 hist_v4_b[d] = v4_b_s / 10000; hist_v4_l[d] = v4_l_s / 10000; hist_v4[d] = (v4_b_s + v4_l_s) / 10000
@@ -453,7 +448,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 hist_v5_dd[d] = (1 - dd_s) * 100; hist_v5_flag[d] = cond_s; hist_v5[d] = (v5_b_s + v5_l_s) / 10000
                 hist_v6[d] = v6_s / 10000; hist_dca_flag[d] = dca_today
 
-            # 迴圈結束，覆寫全宇宙的最終值給畫圖用
             df_res['1. 一般散戶 (100% 基準)'] = v1_base
             df_res['2. 激進賭徒 (100% 槓桿)'] = v2_lev
             df_res['3. 保守定存 (50/50 持有)'] = v3_c + v3_b
@@ -474,7 +468,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             else:
                 sub_dates[:] = "N/A"; sub_blocks[:] = "N/A"
             
-            # 打包第一/二引擎的拆解紀錄
             st.session_state['sim_data_ext'] = {
                 'hist_v3_c': hist_v3_c, 'hist_v3_b': hist_v3_b,
                 'hist_v4_b': hist_v4_b, 'hist_v4_l': hist_v4_l, 'hist_v4_flag': hist_v4_flag,
@@ -515,7 +508,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
 # ==========================================
 if st.session_state['sim_done']:
     data = st.session_state['sim_data']
-    ext = st.session_state['sim_data_ext'] # 取出擴充拆解資料
+    ext = st.session_state.get('sim_data_ext', {})
     
     st.success(f"✅ 成功完成 {data['sim_years']} 年蒙地卡羅模擬 ({data['api_label']})！勝率是以打敗定存 ({data['risk_free_rate']}%) 為基準。")
     
