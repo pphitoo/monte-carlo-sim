@@ -632,4 +632,76 @@ if st.session_state['sim_done']:
         pdf.ln(5)
 
         pdf.set_font('NotoSans', '', 12)
-        pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR
+        pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR)對照表", ln=True, align="L")
+        
+        fig_tbl, ax_tbl = plt.subplots(figsize=(16, 4.5))
+        ax_tbl.axis('off')
+        
+        df_render = df_stats.reset_index()
+        tbl = ax_tbl.table(cellText=df_render.values, colLabels=df_render.columns, loc='center', cellLoc='center')
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(11)
+        tbl.scale(1, 4.0) 
+        
+        for (i, j), cell in tbl.get_celld().items():
+            if i == 0:
+                cell.set_facecolor('#4C72B0')
+                cell.set_text_props(color='white', weight='bold')
+            elif j == 0:
+                cell.set_facecolor('#EAEAEA')
+                cell.set_text_props(weight='bold')
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_tbl:
+            fig_tbl.savefig(tmp_tbl.name, format="png", bbox_inches="tight", dpi=200)
+            pdf.image(tmp_tbl.name, x=10, w=190)
+        plt.close(fig_tbl)
+            
+        pdf.add_page() 
+        pdf.set_font('NotoSans', '', 12)
+        pdf.cell(0, 10, "📈 終值分佈與年化報酬率盒鬚圖", ln=True, align="L")
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile1:
+            fig1.savefig(tmpfile1.name, format="png", bbox_inches="tight", dpi=150)
+            pdf.image(tmpfile1.name, x=10, w=190)
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile2:
+            fig2.savefig(tmpfile2.name, format="png", bbox_inches="tight", dpi=150)
+            pdf.ln(5)
+            pdf.image(tmpfile2.name, x=10, w=190)
+            
+        return bytes(pdf.output())
+
+    with st.spinner("準備 PDF 報告中..."):
+        pdf_bytes = generate_pdf()
+        if pdf_bytes:
+            st.download_button(label="📥 下載 PDF 分析報告", data=pdf_bytes, file_name=f"MonteCarlo_Report_{data['engine'][:1]}.pdf", mime="application/pdf", type="primary")
+
+    # ==========================================
+    # 🌟 開發者專區 (動態適應全引擎匯出)
+    # ==========================================
+    st.divider()
+    with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
+        if "歷史" in data['engine'] and data.get('raw_hist_df') is not None:
+            df_export_check = data['raw_hist_df'].reset_index()
+            if 'index' in df_export_check.columns: df_export_check.rename(columns={'index': 'Date'}, inplace=True)
+            elif 'date' in df_export_check.columns: df_export_check.rename(columns={'date': 'Date'}, inplace=True)
+            csv_check = df_export_check.to_csv(index=False).encode('utf-8-sig')
+            st.download_button("📥 下載 雙引擎除錯對照表 (CSV)", csv_check, "consensus_history_check.csv", "text/csv")
+
+        cols = st.columns(5)
+        for i, label in enumerate(data['target_labels']):
+            if "3." in data['engine']:
+                df_export = pd.DataFrame({
+                    'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
+                    'A. 一般散戶': data['hist_v1'][:, i], 'B. 紀律再平衡': data['hist_v2'][:, i], 'C. 時空旅人': data['hist_v3'][:, i]
+                })
+            else:
+                df_export = pd.DataFrame({
+                    'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
+                    '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
+                    '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
+                })
+            cols[i].download_button(f"📥 下載 {label}", df_export.to_csv(index=False).encode('utf-8-sig'), f"Universe_{label.split(' ')[0]}.csv", "text/csv")
+
+else:
+    st.info("👈 防閃退記憶體保險箱已就緒！請在左側設定參數並點擊「開始實戰模擬」。")
