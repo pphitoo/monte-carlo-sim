@@ -218,13 +218,9 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
         dt = 1/252
         cash_growth = np.exp(0.01 * dt)
         
-        # 先宣告變數避免 Scope 報錯
-        m_B_sub = None
-        m_L_sub = None
-        m_multi_sub = None
-        raw_hist_dict = {} # 🌟 修復：用來儲存所有資產的原始歷史資料表
+        m_B_sub = None; m_L_sub = None; m_multi_sub = None
+        raw_hist_dict = {} 
         
-        # 🌟 針對不同引擎進行分流處理
         if "3." in engine:
             raw_assets = [(tkr1, w1), (tkr2, w2), (tkr3, w3)]
             valid_assets = []
@@ -237,7 +233,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                         dfs.append(df['Final_Consensus'].rename(tkr))
                         valid_assets.append(tkr)
                         valid_weights.append(w)
-                        raw_hist_dict[tkr] = df # 將原始雙源資料表存入字典
+                        raw_hist_dict[tkr] = df 
             
             if len(valid_assets) < 1:
                 st.error("❌ 無法載入任何標的資料，請檢查代碼或網路。")
@@ -265,7 +261,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             v_C = np.ones((N, num_assets)) * total_cap * weights_arr
             
             rebal_days = rebal_months * 21
-            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
             
             temp_final = np.ones(N)
             for d in range(days): temp_final *= (1 + sim_ret_multi[d, :, 0]) 
@@ -274,21 +269,39 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             
             m_multi_sub = sim_ret_multi[:, target_indices, :]
             
+            # 🌟 極致拆解：初始化第三引擎的歷史紀錄矩陣
+            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
+            hist_vA_assets = np.zeros((days, 5, num_assets))
+            hist_vB_assets = np.zeros((days, 5, num_assets))
+            hist_vC_assets = np.zeros((days, 5, num_assets))
+            hist_vB_flag = np.zeros((days, 5), dtype=bool)
+            hist_dca_flag = np.zeros((days, 5), dtype=bool)
+            
             for d in range(days):
                 r_mult = 1 + sim_ret_multi[d] 
                 v_A *= r_mult; v_B *= r_mult; v_C *= r_mult
                 
+                rebal_today = False
                 if (d + 1) % rebal_days == 0:
                     total_B = np.sum(v_B, axis=1, keepdims=True)
                     v_B = total_B * weights_arr 
+                    rebal_today = True
                     
+                dca_today = False
                 if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
                     v_A += periodic_cap * weights_arr
                     v_B += periodic_cap * weights_arr
+                    dca_today = True
                 
+                # 紀錄 5 大宇宙的拆解明細
+                hist_vA_assets[d] = v_A[target_indices] / 10000
+                hist_vB_assets[d] = v_B[target_indices] / 10000
+                hist_vC_assets[d] = v_C[target_indices] / 10000
                 hist_v1[d] = np.sum(v_A[target_indices], axis=1) / 10000
                 hist_v2[d] = np.sum(v_B[target_indices], axis=1) / 10000
                 hist_v3[d] = np.sum(v_C[target_indices], axis=1) / 10000
+                hist_vB_flag[d] = rebal_today
+                hist_dca_flag[d] = dca_today
             
             df_res = pd.DataFrame({
                 'A. 一般散戶 (放任漂流)': np.sum(v_A, axis=1),
@@ -297,7 +310,12 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             })
             
             target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
-            hist_v4 = None; hist_v5 = None; hist_v6 = None
+            
+            # 打包第三引擎的拆解紀錄
+            st.session_state['sim_data_ext'] = {
+                'hist_vA_assets': hist_vA_assets, 'hist_vB_assets': hist_vB_assets, 'hist_vC_assets': hist_vC_assets,
+                'hist_vB_flag': hist_vB_flag, 'hist_dca_flag': hist_dca_flag
+            }
 
             sub_dates = np.empty((days, 5), dtype=object); sub_blocks = np.empty((days, 5), dtype=object)
             for col, og_idx in enumerate(target_indices):
@@ -319,7 +337,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                 if raw_hist_df is None or len(raw_hist_df) < block_size:
                     st.error("❌ 無法載入歷史資料。請檢查日期或代碼。")
                     st.stop()
-                raw_hist_dict[ticker] = raw_hist_df # 將原始雙源資料表存入字典
+                raw_hist_dict[ticker] = raw_hist_df 
                 rets = raw_hist_df['Final_Consensus'].values.flatten()
                 raw_dates = raw_hist_df.index.strftime('%Y-%m-%d').values
                 indices = np.random.randint(0, len(rets)-block_size, (int(np.ceil(days/block_size)), N))
@@ -343,79 +361,105 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             v5_b = np.ones(N) * initial_cap; v5_l = np.zeros(N)
             trig_level = np.zeros(N); v6_lumpsum = np.ones(N) * total_cap; ath = np.ones(N) 
 
-            for d in range(days):
-                rb, rl = m_B[d], m_L[d]
-                v1_base *= rb; v2_lev *= rl
-                v3_c *= cash_growth; v3_b *= rb
-                v4_b *= rb; v4_l *= rl
-                if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
-                v5_b *= rb; v5_l *= rl
-                ath = np.maximum(ath, v6_lumpsum) 
-                dd = v6_lumpsum / ath
-                current_level = np.floor((1 - dd) / drop_threshold)
-                trig_level[dd == 1] = 0 
-                cond = current_level > trig_level 
-                if np.any(cond):
-                    move = v5_b[cond] * transfer_pct
-                    v5_b[cond] -= move
-                    v5_l[cond] += move
-                    trig_level[cond] = current_level[cond] 
-                v6_lumpsum *= rb
-                if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
-                    v1_base += periodic_cap; v2_lev += periodic_cap
-                    v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
-                    v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
-                    v5_b += periodic_cap 
-
             df_res = pd.DataFrame({
-                '1. 一般散戶 (100% 基準)': v1_base, '2. 激進賭徒 (100% 槓桿)': v2_lev,
-                '3. 保守定存 (50/50 持有)': v3_c + v3_b, '4. 紀律經理 (50大盤/50槓桿)': v4_b + v4_l,
-                '5. 危機入市 (階梯換槓桿)': v5_b + v5_l, '6. 時空旅人 (總成本首日全下)': v6_lumpsum
-            })
+                '1. 一般散戶 (100% 基準)': np.zeros(N), '2. 激進賭徒 (100% 槓桿)': np.zeros(N),
+                '3. 保守定存 (50/50 持有)': np.zeros(N), '4. 紀律經理 (50大盤/50槓桿)': np.zeros(N),
+                '5. 危機入市 (階梯換槓桿)': np.zeros(N), '6. 時空旅人 (總成本首日全下)': np.zeros(N)
+            }) # Placeholder
             
-            final_vals = v1_base
-            sorted_args = np.argsort(final_vals)
+            # 先跑一次算出最終結果找極端值
+            temp_v1 = v1_base.copy()
+            for d in range(days): temp_v1 *= np.maximum(0, 1+sim_ret_base[d])
+            sorted_args = np.argsort(temp_v1)
             target_indices = [sorted_args[0], sorted_args[int(N * 0.25)], sorted_args[int(N * 0.50)], sorted_args[int(N * 0.75)], sorted_args[-1]]
             target_labels = ["Worst (最糟)", "Q1 (較差)", "Median (中位數)", "Q3 (較佳)", "Best (最佳)"]
 
             m_B_sub = m_B[:, target_indices]
             m_L_sub = m_L[:, target_indices]
             
+            # 🌟 極致拆解：初始化 5 大宇宙的歷史紀錄矩陣
             v1_s = np.ones(5) * initial_cap; v2_s = np.ones(5) * initial_cap
             v3_c_s = np.ones(5) * initial_cap * 0.5; v3_b_s = np.ones(5) * initial_cap * 0.5
             v4_b_s = np.ones(5) * initial_cap * 0.5; v4_l_s = np.ones(5) * initial_cap * 0.5
             v5_b_s = np.ones(5) * initial_cap; v5_l_s = np.zeros(5)
             trig_lvl_s = np.zeros(5); v6_s = np.ones(5) * total_cap; ath_s = np.ones(5)
             
-            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
-            hist_v4 = np.zeros((days, 5)); hist_v5 = np.zeros((days, 5)); hist_v6 = np.zeros((days, 5))
+            hist_v1 = np.zeros((days, 5)); hist_v2 = np.zeros((days, 5))
+            hist_v3_c = np.zeros((days, 5)); hist_v3_b = np.zeros((days, 5)); hist_v3 = np.zeros((days, 5))
+            hist_v4_b = np.zeros((days, 5)); hist_v4_l = np.zeros((days, 5)); hist_v4 = np.zeros((days, 5)); hist_v4_flag = np.zeros((days, 5), dtype=bool)
+            hist_v5_b = np.zeros((days, 5)); hist_v5_l = np.zeros((days, 5)); hist_v5_ath = np.zeros((days, 5)); hist_v5_dd = np.zeros((days, 5))
+            hist_v5 = np.zeros((days, 5)); hist_v5_flag = np.zeros((days, 5), dtype=bool)
+            hist_v6 = np.zeros((days, 5)); hist_dca_flag = np.zeros((days, 5), dtype=bool)
 
+            # 正式回測完整 N 次，順便把 5 大宇宙的每日拆解紀錄存起來
             for d in range(days):
-                rb, rl = m_B_sub[d], m_L_sub[d]
-                v1_s *= rb; v2_s *= rl
-                v3_c_s *= cash_growth; v3_b_s *= rb
-                v4_b_s *= rb; v4_l_s *= rl
-                if (d+1)%252==0: v4_b_s, v4_l_s = (v4_b_s+v4_l_s)*0.5, (v4_b_s+v4_l_s)*0.5
-                v5_b_s *= rb; v5_l_s *= rl
-                ath_s = np.maximum(ath_s, v6_s) 
-                dd = v6_s / ath_s
-                current_level = np.floor((1 - dd) / drop_threshold)
-                trig_lvl_s[dd == 1] = 0 
-                cond = current_level > trig_lvl_s 
+                rb, rl = m_B[d], m_L[d]
+                rbs, rls = m_B_sub[d], m_L_sub[d] # 5宇宙
+                
+                # 處理全宇宙
+                v1_base *= rb; v2_lev *= rl
+                v3_c *= cash_growth; v3_b *= rb
+                v4_b *= rb; v4_l *= rl
+                if (d+1)%252==0: v4_b, v4_l = (v4_b+v4_l)*0.5, (v4_b+v4_l)*0.5
+                v5_b *= rb; v5_l *= rl
+                ath = np.maximum(ath, v6_lumpsum); dd = v6_lumpsum / ath
+                current_level = np.floor((1 - dd) / drop_threshold); trig_level[dd == 1] = 0 
+                cond = current_level > trig_level 
                 if np.any(cond):
-                    move = v5_b_s[cond] * transfer_pct
-                    v5_b_s[cond] -= move
-                    v5_l_s[cond] += move
-                    trig_lvl_s[cond] = current_level[cond] 
-                v6_s *= rb
+                    move = v5_b[cond] * transfer_pct
+                    v5_b[cond] -= move; v5_l[cond] += move
+                    trig_level[cond] = current_level[cond] 
+                v6_lumpsum *= rb
+                
+                # 處理 5 大宇宙的拆解驗算數據
+                v1_s *= rbs; v2_s *= rls
+                v3_c_s *= cash_growth; v3_b_s *= rbs
+                v4_b_s *= rbs; v4_l_s *= rls
+                v4_rebal = False
+                if (d+1)%252==0: 
+                    v4_b_s, v4_l_s = (v4_b_s+v4_l_s)*0.5, (v4_b_s+v4_l_s)*0.5
+                    v4_rebal = True
+                
+                v5_b_s *= rbs; v5_l_s *= rls
+                ath_s = np.maximum(ath_s, v6_s); dd_s = v6_s / ath_s
+                current_level_s = np.floor((1 - dd_s) / drop_threshold); trig_lvl_s[dd_s == 1] = 0 
+                cond_s = current_level_s > trig_lvl_s 
+                if np.any(cond_s):
+                    move_s = v5_b_s[cond_s] * transfer_pct
+                    v5_b_s[cond_s] -= move_s; v5_l_s[cond_s] += move_s
+                    trig_lvl_s[cond_s] = current_level_s[cond_s] 
+                v6_s *= rbs
+                
+                dca_today = False
                 if d % dca_interval == 0 and (d // dca_interval) < actual_dca_parts:
+                    # 全宇宙入帳
+                    v1_base += periodic_cap; v2_lev += periodic_cap
+                    v3_c += periodic_cap * 0.5; v3_b += periodic_cap * 0.5
+                    v4_b += periodic_cap * 0.5; v4_l += periodic_cap * 0.5
+                    v5_b += periodic_cap 
+                    # 5大宇宙入帳
                     v1_s += periodic_cap; v2_s += periodic_cap
                     v3_c_s += periodic_cap * 0.5; v3_b_s += periodic_cap * 0.5
                     v4_b_s += periodic_cap * 0.5; v4_l_s += periodic_cap * 0.5
                     v5_b_s += periodic_cap 
+                    dca_today = True
 
-                hist_v1[d] = v1_s / 10000; hist_v2[d] = v2_s / 10000; hist_v3[d] = (v3_c_s + v3_b_s) / 10000
-                hist_v4[d] = (v4_b_s + v4_l_s) / 10000; hist_v5[d] = (v5_b_s + v5_l_s) / 10000; hist_v6[d] = v6_s / 10000
+                # 儲存明細歷史 (萬為單位)
+                hist_v1[d] = v1_s / 10000; hist_v2[d] = v2_s / 10000
+                hist_v3_c[d] = v3_c_s / 10000; hist_v3_b[d] = v3_b_s / 10000; hist_v3[d] = (v3_c_s + v3_b_s) / 10000
+                hist_v4_b[d] = v4_b_s / 10000; hist_v4_l[d] = v4_l_s / 10000; hist_v4[d] = (v4_b_s + v4_l_s) / 10000
+                hist_v4_flag[d] = v4_rebal
+                hist_v5_b[d] = v5_b_s / 10000; hist_v5_l[d] = v5_l_s / 10000; hist_v5_ath[d] = ath_s / 10000
+                hist_v5_dd[d] = (1 - dd_s) * 100; hist_v5_flag[d] = cond_s; hist_v5[d] = (v5_b_s + v5_l_s) / 10000
+                hist_v6[d] = v6_s / 10000; hist_dca_flag[d] = dca_today
+
+            # 迴圈結束，覆寫全宇宙的最終值給畫圖用
+            df_res['1. 一般散戶 (100% 基準)'] = v1_base
+            df_res['2. 激進賭徒 (100% 槓桿)'] = v2_lev
+            df_res['3. 保守定存 (50/50 持有)'] = v3_c + v3_b
+            df_res['4. 紀律經理 (50大盤/50槓桿)'] = v4_b + v4_l
+            df_res['5. 危機入市 (階梯換槓桿)'] = v5_b + v5_l
+            df_res['6. 時空旅人 (總成本首日全下)'] = v6_lumpsum
 
             sub_dates = np.empty((days, 5), dtype=object); sub_blocks = np.empty((days, 5), dtype=object)
             if "1." in engine:
@@ -428,10 +472,16 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
                                 sub_dates[d_idx, col] = raw_dates[start + i]
                                 sub_blocks[d_idx, col] = f"Block #{b+1}"
             else:
-                sub_dates[:] = "N/A"
-                sub_blocks[:] = "N/A"
+                sub_dates[:] = "N/A"; sub_blocks[:] = "N/A"
+            
+            # 打包第一/二引擎的拆解紀錄
+            st.session_state['sim_data_ext'] = {
+                'hist_v3_c': hist_v3_c, 'hist_v3_b': hist_v3_b,
+                'hist_v4_b': hist_v4_b, 'hist_v4_l': hist_v4_l, 'hist_v4_flag': hist_v4_flag,
+                'hist_v5_b': hist_v5_b, 'hist_v5_l': hist_v5_l, 'hist_v5_ath': hist_v5_ath,
+                'hist_v5_dd': hist_v5_dd, 'hist_v5_flag': hist_v5_flag, 'hist_dca_flag': hist_dca_flag
+            }
 
-        # 共用數據打包存入保險箱
         df_res_van = df_res / 10000
         
         st.session_state['sim_data'] = {
@@ -452,8 +502,6 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
             'valid_assets': valid_assets if "3." in engine else None,
             'weights_arr': weights_arr if "3." in engine else None,
             'rebal_months': rebal_months if "3." in engine else None,
-            
-            # 🌟 修復：正確存入原始歷史資料庫與除錯矩陣
             'raw_hist_dict': raw_hist_dict, 
             'm_B_sub': m_B_sub, 'm_L_sub': m_L_sub, 'm_multi_sub': m_multi_sub,
             'target_labels': target_labels, 'sub_blocks': sub_blocks, 'sub_dates': sub_dates,
@@ -467,6 +515,7 @@ if st.sidebar.button("🚀 開始實戰模擬", type="primary", use_container_wi
 # ==========================================
 if st.session_state['sim_done']:
     data = st.session_state['sim_data']
+    ext = st.session_state['sim_data_ext'] # 取出擴充拆解資料
     
     st.success(f"✅ 成功完成 {data['sim_years']} 年蒙地卡羅模擬 ({data['api_label']})！勝率是以打敗定存 ({data['risk_free_rate']}%) 為基準。")
     
@@ -566,26 +615,17 @@ if st.session_state['sim_done']:
     
     def generate_pdf():
         try: from fpdf import FPDF
-        except ImportError:
-            st.error("❌ 找不到 FPDF 套件。")
-            return None
-            
+        except ImportError: return None
         font_path = "NotoSansTC-Regular.ttf"
-        if not os.path.exists(font_path):
-            st.error("❌ 找不到實體中文字型檔 `NotoSansTC-Regular.ttf`！")
-            return None
+        if not os.path.exists(font_path): return None
             
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
-        
         pdf.add_font('NotoSans', '', font_path, uni=True)
         pdf.set_font('NotoSans', '', 18)
-            
-        title = "蒙地卡羅量化回測實驗室 - 戰情報告"
-        pdf.cell(0, 10, title, ln=True, align="C")
+        pdf.cell(0, 10, "蒙地卡羅量化回測實驗室 - 戰情報告", ln=True, align="C")
         pdf.ln(2)
-        
         pdf.set_font('NotoSans', '', 11)
         
         if "3." in data['engine']:
@@ -603,10 +643,8 @@ if st.session_state['sim_done']:
             * C. 時空旅人 (首日全下): 向神明借未來所有的錢，第一天直接依比例歐印。
             """
         else:
-            if "1." in data['engine']:
-                adv_str = f"- 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)"
-            else:
-                adv_str = f"- 預期報酬/波動: {data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}% (肥尾強度: {data['df_t']})"
+            if "1." in data['engine']: adv_str = f"- 歷史區間: {data['start_date']} ~ {data['end_date']} (區塊大小: {data['block_size']} 天)"
+            else: adv_str = f"- 預期報酬/波動: {data['mu_base']*100:.1f}% / {data['sig_base']*100:.1f}% (肥尾強度: {data['df_t']})"
             adv_setting = f"""
             [進階策略設定]
             - 模擬標的: {data['ticker']}
@@ -634,33 +672,21 @@ if st.session_state['sim_done']:
         """
         for line in params_txt.strip().split('\n'):
             if line.strip(): pdf.cell(0, 5, line.strip(), ln=True)
-        
         pdf.ln(2)
-
         pdf.set_font('NotoSans', '', 9)
         pdf.multi_cell(0, 4, desc_txt.strip())
         pdf.ln(5)
 
         pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 8, "🏆 策略終值與年化報酬率(CAGR)對照表", ln=True, align="L")
-        
         fig_tbl, ax_tbl = plt.subplots(figsize=(16, 4.5))
         ax_tbl.axis('off')
-        
         df_render = df_stats.reset_index()
         tbl = ax_tbl.table(cellText=df_render.values, colLabels=df_render.columns, loc='center', cellLoc='center')
-        tbl.auto_set_font_size(False)
-        tbl.set_fontsize(11)
-        tbl.scale(1, 4.0) 
-        
+        tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 4.0) 
         for (i, j), cell in tbl.get_celld().items():
-            if i == 0:
-                cell.set_facecolor('#4C72B0')
-                cell.set_text_props(color='white', weight='bold')
-            elif j == 0:
-                cell.set_facecolor('#EAEAEA')
-                cell.set_text_props(weight='bold')
-
+            if i == 0: cell.set_facecolor('#4C72B0'); cell.set_text_props(color='white', weight='bold')
+            elif j == 0: cell.set_facecolor('#EAEAEA'); cell.set_text_props(weight='bold')
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_tbl:
             fig_tbl.savefig(tmp_tbl.name, format="png", bbox_inches="tight", dpi=200)
             pdf.image(tmp_tbl.name, x=10, w=190)
@@ -669,30 +695,28 @@ if st.session_state['sim_done']:
         pdf.add_page() 
         pdf.set_font('NotoSans', '', 12)
         pdf.cell(0, 10, "📈 終值分佈與年化報酬率盒鬚圖", ln=True, align="L")
-        
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile1:
             fig1.savefig(tmpfile1.name, format="png", bbox_inches="tight", dpi=150)
             pdf.image(tmpfile1.name, x=10, w=190)
-            
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile2:
             fig2.savefig(tmpfile2.name, format="png", bbox_inches="tight", dpi=150)
             pdf.ln(5)
             pdf.image(tmpfile2.name, x=10, w=190)
-            
         return bytes(pdf.output())
 
-    with st.spinner("準備 PDF 報告中..."):
-        pdf_bytes = generate_pdf()
-        if pdf_bytes:
-            st.download_button(label="📥 下載 PDF 分析報告", data=pdf_bytes, file_name=f"MonteCarlo_Report_{data['engine'][:1]}.pdf", mime="application/pdf", type="primary")
+    if not os.path.exists("NotoSansTC-Regular.ttf"):
+        st.warning("⚠️ 找不到 `NotoSansTC-Regular.ttf` 字型檔，PDF 下載功能暫時關閉。")
+    else:
+        with st.spinner("準備 PDF 報告中..."):
+            pdf_bytes = generate_pdf()
+            if pdf_bytes: st.download_button(label="📥 下載 PDF 分析報告", data=pdf_bytes, file_name=f"MonteCarlo_Report.pdf", mime="application/pdf", type="primary")
 
     # ==========================================
-    # 🌟 開發者專區 (原始數據與除錯表 100% 完整還原)
+    # 🌟 開發者專區 (白箱極致拆解 + 空白防呆分隔線)
     # ==========================================
     st.divider()
     with st.expander("🕵️ 開發者專屬：資料與運算邏輯驗證專區", expanded=False):
         
-        # 🌟 修復：雙源除錯表動態下載 (支援單標的與多標的)
         if data.get('raw_hist_dict'):
             st.markdown("#### 🔍 歷史報價雙源除錯對照表 (FinMind vs Yahoo)")
             dl_cols = st.columns(len(data['raw_hist_dict']))
@@ -705,11 +729,11 @@ if st.session_state['sim_done']:
                     dl_cols[idx].download_button(f"📥 下載 {tkr} 對照表 (CSV)", csv_check, f"consensus_{tkr}.csv", "text/csv")
             st.divider()
 
-        st.markdown("#### 📊 5 大極端平行宇宙逐日明細")
+        st.markdown("#### 📊 5 大極端平行宇宙逐日明細 (極致拆解驗算版)")
+        st.info("💡 CSV 已插入「空白欄位」作為視覺分隔線，且所有策略的現金、股票部位、再平衡與抄底觸發事件 (Y) 皆已完整拆解，方便您在 Excel 驗算公式。")
         cols = st.columns(5)
         for i, label in enumerate(data['target_labels']):
             if "3." in data['engine']:
-                # 引擎 3 動態明細：印出所有設定資產的原始單日報酬
                 export_dict = {
                     'Day': np.arange(1, data['days'] + 1), 
                     '抽樣區塊編號': data['sub_blocks'][:, i], 
@@ -717,21 +741,65 @@ if st.session_state['sim_done']:
                 }
                 for a_idx, asset_name in enumerate(data['valid_assets']):
                     export_dict[f'{asset_name} 單日報酬'] = data['m_multi_sub'][:, i, a_idx]
-                    
-                export_dict.update({
-                    'A. 一般散戶': data['hist_v1'][:, i], 
-                    'B. 紀律再平衡': data['hist_v2'][:, i], 
-                    'C. 時空旅人': data['hist_v3'][:, i]
-                })
+                
+                export_dict['本日分批投入'] = ['Y' if x else '' for x in ext['hist_dca_flag'][:, i]]
+                
+                export_dict[' '] = [''] * data['days'] # 🌟 空白分隔線
+                for a_idx, asset_name in enumerate(data['valid_assets']):
+                    export_dict[f'A. {asset_name}部位'] = ext['hist_vA_assets'][:, i, a_idx]
+                export_dict['A. 散戶(總值)'] = data['hist_v1'][:, i]
+                
+                export_dict['  '] = [''] * data['days'] # 🌟 空白分隔線
+                for a_idx, asset_name in enumerate(data['valid_assets']):
+                    export_dict[f'B. {asset_name}部位'] = ext['hist_vB_assets'][:, i, a_idx]
+                export_dict['B. 觸發再平衡'] = ['Y' if x else '' for x in ext['hist_vB_flag'][:, i]]
+                export_dict['B. 紀律(總值)'] = data['hist_v2'][:, i]
+                
+                export_dict['   '] = [''] * data['days'] # 🌟 空白分隔線
+                for a_idx, asset_name in enumerate(data['valid_assets']):
+                    export_dict[f'C. {asset_name}部位'] = ext['hist_vC_assets'][:, i, a_idx]
+                export_dict['C. 旅人(總值)'] = data['hist_v3'][:, i]
+                
                 df_export = pd.DataFrame(export_dict)
             else:
-                # 引擎 1 & 2 明細：完美還原大盤與槓桿單日報酬
-                df_export = pd.DataFrame({
-                    'Day': np.arange(1, data['days'] + 1), '抽樣區塊編號': data['sub_blocks'][:, i], '歷史對應日期': data['sub_dates'][:, i],
-                    '大盤單日報酬': data['m_B_sub'][:, i] - 1, '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
-                    '1. 一般散戶': data['hist_v1'][:, i], '2. 激進賭徒': data['hist_v2'][:, i], '3. 保守定存': data['hist_v3'][:, i],
-                    '4. 紀律經理': data['hist_v4'][:, i], '5. 危機入市': data['hist_v5'][:, i], '6. 時空旅人': data['hist_v6'][:, i],
-                })
+                export_dict = {
+                    'Day': np.arange(1, data['days'] + 1), 
+                    '抽樣區塊編號': data['sub_blocks'][:, i], 
+                    '歷史對應日期': data['sub_dates'][:, i],
+                    '大盤單日報酬': data['m_B_sub'][:, i] - 1, 
+                    '槓桿單日報酬': data['m_L_sub'][:, i] - 1,
+                    '本日分批投入': ['Y' if x else '' for x in ext['hist_dca_flag'][:, i]],
+                    
+                    ' ': [''] * data['days'], # 🌟 空白分隔線
+                    '1. 散戶(總值)': data['hist_v1'][:, i],
+                    
+                    '  ': [''] * data['days'], # 🌟 空白分隔線
+                    '2. 賭徒(總值)': data['hist_v2'][:, i],
+                    
+                    '   ': [''] * data['days'], # 🌟 空白分隔線
+                    '3. 定存_現金部位': ext['hist_v3_c'][:, i],
+                    '3. 定存_大盤部位': ext['hist_v3_b'][:, i],
+                    '3. 保守(總值)': data['hist_v3'][:, i],
+                    
+                    '    ': [''] * data['days'], # 🌟 空白分隔線
+                    '4. 經理_大盤部位': ext['hist_v4_b'][:, i],
+                    '4. 經理_槓桿部位': ext['hist_v4_l'][:, i],
+                    '4. 觸發再平衡': ['Y' if x else '' for x in ext['hist_v4_flag'][:, i]],
+                    '4. 紀律(總值)': data['hist_v4'][:, i],
+                    
+                    '     ': [''] * data['days'], # 🌟 空白分隔線
+                    '5. 抄底_大盤部位': ext['hist_v5_b'][:, i],
+                    '5. 抄底_槓桿部位': ext['hist_v5_l'][:, i],
+                    '5. 當前歷史高點': ext['hist_v5_ath'][:, i],
+                    '5. 距高點跌幅(%)': ext['hist_v5_dd'][:, i],
+                    '5. 觸發抄底換倉': ['Y' if x else '' for x in ext['hist_v5_flag'][:, i]],
+                    '5. 抄底(總值)': data['hist_v5'][:, i],
+                    
+                    '      ': [''] * data['days'], # 🌟 空白分隔線
+                    '6. 旅人(總值)': data['hist_v6'][:, i]
+                }
+                df_export = pd.DataFrame(export_dict)
+                
             cols[i].download_button(f"📥 下載 {label}", df_export.to_csv(index=False).encode('utf-8-sig'), f"Universe_{label.split(' ')[0]}.csv", "text/csv")
 
 else:
