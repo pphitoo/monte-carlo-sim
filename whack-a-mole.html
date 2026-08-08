@@ -104,6 +104,17 @@
     font-size: 1em;
   }
   .hint { font-size: 0.8em; color: #636e72; margin-top: 4px; }
+  #difficultyRow {
+    text-align: center;
+    margin: 10px 0 4px;
+    font-size: 1em;
+  }
+  #difficultyRow select {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid #b2bec3;
+    font-size: 1em;
+  }
   #applyBtn {
     display: block;
     margin: 20px auto 0;
@@ -129,23 +140,41 @@
   }
   #board {
     display: grid;
-    grid-template-columns: repeat(3, 110px);
-    grid-template-rows: repeat(3, 110px);
-    gap: 15px;
+    grid-template-columns: repeat(3, 125px);
+    grid-template-rows: repeat(3, 125px);
+    gap: 26px;
     background: #6c5ce7;
     padding: 20px;
     border-radius: 20px;
     box-shadow: 0 8px 20px rgba(0,0,0,0.3);
   }
   .hole {
-    width: 110px;
-    height: 110px;
+    width: 125px;
+    height: 125px;
     background: #3f3123;
     border-radius: 50%;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     box-shadow: inset 0 6px 10px rgba(0,0,0,0.6);
     cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 擴大實際可點擊/觸碰範圍，比視覺洞口大一圈，減少「點不到」的情況 */
+  .hole::after {
+    content: '';
+    position: absolute;
+    top: -18px;
+    left: -18px;
+    right: -18px;
+    bottom: -18px;
+    border-radius: 50%;
+  }
+  .holeVisual {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    overflow: hidden;
   }
   .mole {
     position: absolute;
@@ -231,6 +260,17 @@
   <div id="setup">
     <h2>角色設定</h2>
     <div id="roleCards"></div>
+
+    <h2>難易度設定</h2>
+    <div id="difficultyRow">
+      <label for="difficultySelect">選擇難度：</label>
+      <select id="difficultySelect">
+        <option value="easy">簡單（地鼠停留久、時間長）</option>
+        <option value="normal" selected>普通</option>
+        <option value="hard">困難（地鼠一閃即逝）</option>
+      </select>
+    </div>
+
     <button id="applyBtn">套用設定並開始遊戲</button>
   </div>
 
@@ -479,13 +519,21 @@
   const timeEl = document.getElementById('time');
   const startBtn = document.getElementById('startBtn');
   const messageEl = document.getElementById('message');
+  const difficultySelect = document.getElementById('difficultySelect');
 
   const HOLE_COUNT = 9;
-  const GAME_TIME = 30;
+
+  // 難易度預設：地鼠停留時間(ms)越長、遊戲時間越長 = 越簡單
+  const DIFFICULTY_PRESETS = {
+    easy:   { minUp: 900,  maxUp: 1500, gameTime: 45 },
+    normal: { minUp: 550,  maxUp: 1000, gameTime: 30 },
+    hard:   { minUp: 280,  maxUp: 550,  gameTime: 25 },
+  };
+  let difficulty = DIFFICULTY_PRESETS.normal;
 
   let holes = [];
   let score = 0;
-  let timeLeft = GAME_TIME;
+  let timeLeft = difficulty.gameTime;
   let gameInterval = null;
   let timerInterval = null;
   let currentMoleIndex = -1;
@@ -496,10 +544,17 @@
     const hole = document.createElement('div');
     hole.className = 'hole';
     hole.dataset.index = i;
+    const holeVisual = document.createElement('div');
+    holeVisual.className = 'holeVisual';
     const mole = document.createElement('div');
     mole.className = 'mole';
-    hole.appendChild(mole);
-    hole.addEventListener('click', () => whack(i, hole));
+    holeVisual.appendChild(mole);
+    hole.appendChild(holeVisual);
+    // 用 pointerdown 取代 click：反應更快，也不受行動裝置 300ms 點擊延遲影響
+    hole.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      whack(i, hole);
+    });
     board.appendChild(hole);
     holes.push(hole);
   }
@@ -536,7 +591,7 @@
     holes[index].classList.add('up');
     playPop();
 
-    const upTime = randomTime(500, 1000);
+    const upTime = randomTime(difficulty.minUp, difficulty.maxUp);
     gameInterval = setTimeout(() => {
       if (playing) {
         holes[index].classList.remove('up', 'hit');
@@ -577,7 +632,7 @@
     if (playing) return;
     playing = true;
     score = 0;
-    timeLeft = GAME_TIME;
+    timeLeft = difficulty.gameTime;
     scoreEl.textContent = score;
     timeEl.textContent = timeLeft;
     messageEl.textContent = '';
@@ -607,6 +662,7 @@
   }
 
   applyBtn.addEventListener('click', () => {
+    difficulty = DIFFICULTY_PRESETS[difficultySelect.value] || DIFFICULTY_PRESETS.normal;
     setupEl.style.display = 'none';
     gameSectionEl.style.display = 'flex';
     startGame();
