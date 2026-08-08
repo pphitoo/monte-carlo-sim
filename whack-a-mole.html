@@ -353,6 +353,69 @@
     roleCardsEl.appendChild(buildRoleCard(role, idx));
   });
 
+  // ---------------- Sound effects (synthesized, no files needed) ----------------
+  let audioCtx = null;
+  function getCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  function tone(freq, start, duration, type, gainPeak, glideTo) {
+    const ctx = getCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+    if (glideTo) {
+      osc.frequency.exponentialRampToValueAtTime(glideTo, ctx.currentTime + start + duration);
+    }
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+    gain.gain.exponentialRampToValueAtTime(gainPeak || 0.25, ctx.currentTime + start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + start);
+    osc.stop(ctx.currentTime + start + duration + 0.05);
+  }
+
+  // 卡通「噗咚」冒出音
+  function playPop() {
+    tone(180, 0, 0.08, 'triangle', 0.15, 400);
+  }
+
+  // 滑稽彈跳音（加分）
+  function playBoing() {
+    tone(300, 0, 0.18, 'sine', 0.3, 900);
+    tone(150, 0.05, 0.15, 'sine', 0.2, 500);
+  }
+
+  // 滑稽鴨叫扣分音
+  function playHonk() {
+    tone(220, 0, 0.1, 'sawtooth', 0.25, 90);
+    tone(180, 0.12, 0.12, 'sawtooth', 0.25, 70);
+  }
+
+  // 開始遊戲小號短樂句
+  function playStartJingle() {
+    [0, 0.12, 0.24].forEach((t, i) => {
+      tone([523, 659, 784][i], t, 0.15, 'square', 0.2);
+    });
+  }
+
+  // 結束音：分數為正 = 歡樂小喇叭，分數為負或0 = 滑稽悲傷長號
+  function playEndSound(finalScore) {
+    if (finalScore > 0) {
+      [0, 0.1, 0.2, 0.35].forEach((t, i) => {
+        tone([523, 659, 784, 1046][i], t, 0.25, 'square', 0.25);
+      });
+    } else {
+      tone(300, 0, 0.6, 'sawtooth', 0.25, 100);
+    }
+  }
+
   // ---------------- Game ----------------
   const setupEl = document.getElementById('setup');
   const gameSectionEl = document.getElementById('gameSection');
@@ -419,6 +482,7 @@
     currentRoleIdx = roleIdx;
     renderMole(holes[index], roleIdx);
     holes[index].classList.add('up');
+    playPop();
 
     const upTime = randomTime(500, 1000);
     gameInterval = setTimeout(() => {
@@ -446,6 +510,7 @@
       score += delta;
       scoreEl.textContent = score;
       showFloatScore(hole, delta);
+      if (delta >= 0) playBoing(); else playHonk();
       hole.classList.add('hit');
       clearTimeout(gameInterval);
       hole.classList.remove('up');
@@ -464,6 +529,7 @@
     timeEl.textContent = timeLeft;
     messageEl.textContent = '';
     startBtn.disabled = true;
+    playStartJingle();
 
     popRandomMole();
 
@@ -483,6 +549,7 @@
     holes.forEach(h => h.classList.remove('up', 'hit'));
     currentMoleIndex = -1;
     startBtn.disabled = false;
+    playEndSound(score);
     messageEl.textContent = `遊戲結束！最終分數: ${score} 🎉`;
   }
 
