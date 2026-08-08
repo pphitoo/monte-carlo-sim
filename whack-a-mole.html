@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>打地鼠小遊戲</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #74b9ff, #55efc4);
+    font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+    color: #2d3436;
+  }
+  h1 { margin: 10px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
+  .info {
+    display: flex;
+    gap: 30px;
+    font-size: 1.2em;
+    margin-bottom: 10px;
+    font-weight: bold;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, 110px);
+    grid-template-rows: repeat(3, 110px);
+    gap: 15px;
+    background: #6c5ce7;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+  }
+  .hole {
+    width: 110px;
+    height: 110px;
+    background: #3f3123;
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 6px 10px rgba(0,0,0,0.6);
+    cursor: pointer;
+  }
+  .mole {
+    position: absolute;
+    left: 50%;
+    bottom: -100%;
+    width: 80%;
+    height: 80%;
+    transform: translateX(-50%);
+    transition: bottom 0.15s ease-out;
+    font-size: 60px;
+    text-align: center;
+    line-height: 90px;
+    user-select: none;
+  }
+  .hole.up .mole { bottom: 5%; }
+  .hole.hit .mole { filter: brightness(1.5); }
+  button#startBtn {
+    margin-top: 20px;
+    padding: 12px 30px;
+    font-size: 1.1em;
+    border: none;
+    border-radius: 30px;
+    background: #e17055;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  button#startBtn:active { transform: translateY(2px); }
+  #message {
+    margin-top: 10px;
+    font-size: 1.3em;
+    font-weight: bold;
+    min-height: 1.5em;
+  }
+</style>
+</head>
+<body>
+  <h1>🔨 打地鼠小遊戲 🐹</h1>
+  <div class="info">
+    <div>分數: <span id="score">0</span></div>
+    <div>時間: <span id="time">30</span>s</div>
+  </div>
+  <div id="board"></div>
+  <button id="startBtn">開始遊戲</button>
+  <div id="message"></div>
+
+<script>
+  const board = document.getElementById('board');
+  const scoreEl = document.getElementById('score');
+  const timeEl = document.getElementById('time');
+  const startBtn = document.getElementById('startBtn');
+  const messageEl = document.getElementById('message');
+
+  const HOLE_COUNT = 9;
+  const GAME_TIME = 30;
+
+  let holes = [];
+  let score = 0;
+  let timeLeft = GAME_TIME;
+  let gameInterval = null;
+  let timerInterval = null;
+  let currentMoleIndex = -1;
+  let playing = false;
+
+  for (let i = 0; i < HOLE_COUNT; i++) {
+    const hole = document.createElement('div');
+    hole.className = 'hole';
+    hole.dataset.index = i;
+    const mole = document.createElement('div');
+    mole.className = 'mole';
+    mole.textContent = '🐹';
+    hole.appendChild(mole);
+    hole.addEventListener('click', () => whack(i, hole));
+    board.appendChild(hole);
+    holes.push(hole);
+  }
+
+  function randomTime(min, max) {
+    return Math.random() * (max - min) + min;
+  }
+
+  function popRandomMole() {
+    if (currentMoleIndex !== -1) {
+      holes[currentMoleIndex].classList.remove('up', 'hit');
+    }
+    const index = Math.floor(Math.random() * HOLE_COUNT);
+    currentMoleIndex = index;
+    holes[index].classList.add('up');
+
+    const upTime = randomTime(500, 1000);
+    gameInterval = setTimeout(() => {
+      if (playing) {
+        holes[index].classList.remove('up', 'hit');
+        currentMoleIndex = -1;
+        popRandomMole();
+      }
+    }, upTime);
+  }
+
+  function whack(index, hole) {
+    if (!playing) return;
+    if (index === currentMoleIndex && hole.classList.contains('up')) {
+      score++;
+      scoreEl.textContent = score;
+      hole.classList.add('hit');
+      clearTimeout(gameInterval);
+      hole.classList.remove('up');
+      setTimeout(() => hole.classList.remove('hit'), 150);
+      currentMoleIndex = -1;
+      popRandomMole();
+    }
+  }
+
+  function startGame() {
+    if (playing) return;
+    playing = true;
+    score = 0;
+    timeLeft = GAME_TIME;
+    scoreEl.textContent = score;
+    timeEl.textContent = timeLeft;
+    messageEl.textContent = '';
+    startBtn.disabled = true;
+
+    popRandomMole();
+
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      timeEl.textContent = timeLeft;
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
+  }
+
+  function endGame() {
+    playing = false;
+    clearInterval(timerInterval);
+    clearTimeout(gameInterval);
+    holes.forEach(h => h.classList.remove('up', 'hit'));
+    currentMoleIndex = -1;
+    startBtn.disabled = false;
+    messageEl.textContent = `遊戲結束！最終分數: ${score} 🎉`;
+  }
+
+  startBtn.addEventListener('click', startGame);
+</script>
+</body>
+</html>
