@@ -5,18 +5,121 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>打地鼠小遊戲</title>
 <style>
+  * { box-sizing: border-box; }
   body {
     margin: 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding: 16px;
     background: linear-gradient(135deg, #74b9ff, #55efc4);
     font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
     color: #2d3436;
   }
-  h1 { margin: 10px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
+  h1 { margin: 10px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); text-align: center; }
+  h2 { margin: 4px 0 12px; text-align: center; }
+
+  /* ---------- Setup screen ---------- */
+  #setup {
+    width: 100%;
+    max-width: 900px;
+    background: rgba(255,255,255,0.85);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+  }
+  #roleCards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+  }
+  .roleCard {
+    background: white;
+    border-radius: 16px;
+    padding: 14px;
+    width: 250px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    text-align: center;
+  }
+  .roleCard h3 { margin: 4px 0 10px; }
+  .cropWrap {
+    width: 160px;
+    height: 160px;
+    margin: 0 auto 10px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #dfe6e9 center/cover no-repeat;
+    background-image: none;
+    border: 3px dashed #b2bec3;
+    position: relative;
+  }
+  .cropWrap.hasImage { border: 3px solid #6c5ce7; }
+  .cropPlaceholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85em;
+    color: #636e72;
+    pointer-events: none;
+  }
+  .fieldRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0;
+    font-size: 0.85em;
+  }
+  .fieldRow label { width: 60px; text-align: right; }
+  .fieldRow input[type="range"] { flex: 1; }
+  .uploadBtn {
+    display: inline-block;
+    margin: 6px 0;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background: #0984e3;
+    color: white;
+    font-size: 0.85em;
+    cursor: pointer;
+  }
+  .uploadBtn input { display: none; }
+  .scoreRow {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .scoreRow label { font-size: 0.9em; font-weight: bold; }
+  .scoreRow input[type="number"] {
+    width: 70px;
+    padding: 6px;
+    border-radius: 8px;
+    border: 1px solid #b2bec3;
+    text-align: center;
+    font-size: 1em;
+  }
+  .hint { font-size: 0.8em; color: #636e72; margin-top: 4px; }
+  #applyBtn {
+    display: block;
+    margin: 20px auto 0;
+    padding: 12px 34px;
+    font-size: 1.1em;
+    border: none;
+    border-radius: 30px;
+    background: #00b894;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  #applyBtn:active { transform: translateY(2px); }
+
+  /* ---------- Game screen ---------- */
+  #gameSection { display: none; flex-direction: column; align-items: center; }
   .info {
     display: flex;
     gap: 30px;
@@ -56,11 +159,31 @@
     text-align: center;
     line-height: 90px;
     user-select: none;
+    border-radius: 50%;
+    background-color: #e0c097;
+    background-size: cover;
+    background-repeat: no-repeat;
   }
   .hole.up .mole { bottom: 5%; }
   .hole.hit .mole { filter: brightness(1.5); }
-  button#startBtn {
+  .floatScore {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    font-weight: bold;
+    font-size: 1.3em;
+    pointer-events: none;
+    animation: floatUp 0.7s ease-out forwards;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+  }
+  @keyframes floatUp {
+    0% { opacity: 1; top: 30%; }
+    100% { opacity: 0; top: -30%; }
+  }
+  button#startBtn, button#backBtn {
     margin-top: 20px;
+    margin-right: 10px;
     padding: 12px 30px;
     font-size: 1.1em;
     border: none;
@@ -70,7 +193,8 @@
     cursor: pointer;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
   }
-  button#startBtn:active { transform: translateY(2px); }
+  button#backBtn { background: #636e72; }
+  button:active { transform: translateY(2px); }
   #message {
     margin-top: 10px;
     font-size: 1.3em;
@@ -81,15 +205,160 @@
 </head>
 <body>
   <h1>🔨 打地鼠小遊戲 🐹</h1>
-  <div class="info">
-    <div>分數: <span id="score">0</span></div>
-    <div>時間: <span id="time">30</span>s</div>
+
+  <div id="setup">
+    <h2>角色設定</h2>
+    <div id="roleCards"></div>
+    <button id="applyBtn">套用設定並開始遊戲</button>
   </div>
-  <div id="board"></div>
-  <button id="startBtn">開始遊戲</button>
-  <div id="message"></div>
+
+  <div id="gameSection">
+    <div class="info">
+      <div>分數: <span id="score">0</span></div>
+      <div>時間: <span id="time">30</span>s</div>
+    </div>
+    <div id="board"></div>
+    <div>
+      <button id="startBtn">重新開始</button>
+      <button id="backBtn">回角色設定</button>
+    </div>
+    <div id="message"></div>
+  </div>
 
 <script>
+  // ---------------- Role setup ----------------
+  const DEFAULT_ROLES = [
+    { name: '角色 1', emoji: '🐹', score: 1 },
+    { name: '角色 2', emoji: '😈', score: -1 },
+    { name: '角色 3', emoji: '⭐', score: 3 },
+  ];
+
+  // each role: { image: dataURL|null, posX, posY, zoom, score }
+  const roles = DEFAULT_ROLES.map(r => ({
+    image: null,
+    emoji: r.emoji,
+    posX: 50,
+    posY: 50,
+    zoom: 100,
+    score: r.score,
+  }));
+
+  const roleCardsEl = document.getElementById('roleCards');
+
+  function buildRoleCard(role, idx) {
+    const card = document.createElement('div');
+    card.className = 'roleCard';
+
+    const title = document.createElement('h3');
+    title.textContent = DEFAULT_ROLES[idx].name;
+    card.appendChild(title);
+
+    const cropWrap = document.createElement('div');
+    cropWrap.className = 'cropWrap';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'cropPlaceholder';
+    placeholder.textContent = role.emoji + ' 尚未上傳';
+    cropWrap.appendChild(placeholder);
+    card.appendChild(cropWrap);
+
+    function updatePreview() {
+      if (role.image) {
+        cropWrap.style.backgroundImage = `url(${role.image})`;
+        cropWrap.style.backgroundSize = `${role.zoom}%`;
+        cropWrap.style.backgroundPosition = `${role.posX}% ${role.posY}%`;
+        cropWrap.classList.add('hasImage');
+        placeholder.style.display = 'none';
+      } else {
+        cropWrap.style.backgroundImage = 'none';
+        cropWrap.classList.remove('hasImage');
+        placeholder.style.display = 'flex';
+      }
+    }
+    updatePreview();
+
+    const uploadLabel = document.createElement('label');
+    uploadLabel.className = 'uploadBtn';
+    uploadLabel.textContent = '📷 上傳照片';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        role.image = ev.target.result;
+        role.posX = 50;
+        role.posY = 50;
+        role.zoom = 100;
+        posXInput.value = 50;
+        posYInput.value = 50;
+        zoomInput.value = 100;
+        updatePreview();
+      };
+      reader.readAsDataURL(file);
+    });
+    uploadLabel.appendChild(fileInput);
+    card.appendChild(uploadLabel);
+
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = '用下方滑桿調整大頭位置與大小';
+    card.appendChild(hint);
+
+    function makeRow(labelText, min, max, value, onInput) {
+      const row = document.createElement('div');
+      row.className = 'fieldRow';
+      const label = document.createElement('label');
+      label.textContent = labelText;
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = min;
+      input.max = max;
+      input.value = value;
+      input.addEventListener('input', () => onInput(Number(input.value)));
+      row.appendChild(label);
+      row.appendChild(input);
+      card.appendChild(row);
+      return input;
+    }
+
+    const posXInput = makeRow('左右', 0, 100, role.posX, (v) => { role.posX = v; updatePreview(); });
+    const posYInput = makeRow('上下', 0, 100, role.posY, (v) => { role.posY = v; updatePreview(); });
+    const zoomInput = makeRow('縮放', 100, 300, role.zoom, (v) => { role.zoom = v; updatePreview(); });
+
+    const scoreRow = document.createElement('div');
+    scoreRow.className = 'scoreRow';
+    const scoreLabel = document.createElement('label');
+    scoreLabel.textContent = '打中分數';
+    const scoreInput = document.createElement('input');
+    scoreInput.type = 'number';
+    scoreInput.value = role.score;
+    scoreInput.addEventListener('input', () => {
+      role.score = Number(scoreInput.value) || 0;
+    });
+    scoreRow.appendChild(scoreLabel);
+    scoreRow.appendChild(scoreInput);
+    card.appendChild(scoreRow);
+
+    const scoreHint = document.createElement('div');
+    scoreHint.className = 'hint';
+    scoreHint.textContent = '正數 = 加分，負數 = 扣分';
+    card.appendChild(scoreHint);
+
+    return card;
+  }
+
+  roles.forEach((role, idx) => {
+    roleCardsEl.appendChild(buildRoleCard(role, idx));
+  });
+
+  // ---------------- Game ----------------
+  const setupEl = document.getElementById('setup');
+  const gameSectionEl = document.getElementById('gameSection');
+  const applyBtn = document.getElementById('applyBtn');
+  const backBtn = document.getElementById('backBtn');
+
   const board = document.getElementById('board');
   const scoreEl = document.getElementById('score');
   const timeEl = document.getElementById('time');
@@ -105,6 +374,7 @@
   let gameInterval = null;
   let timerInterval = null;
   let currentMoleIndex = -1;
+  let currentRoleIdx = -1;
   let playing = false;
 
   for (let i = 0; i < HOLE_COUNT; i++) {
@@ -113,7 +383,6 @@
     hole.dataset.index = i;
     const mole = document.createElement('div');
     mole.className = 'mole';
-    mole.textContent = '🐹';
     hole.appendChild(mole);
     hole.addEventListener('click', () => whack(i, hole));
     board.appendChild(hole);
@@ -124,12 +393,31 @@
     return Math.random() * (max - min) + min;
   }
 
+  function renderMole(hole, roleIdx) {
+    const mole = hole.querySelector('.mole');
+    const role = roles[roleIdx];
+    if (role.image) {
+      mole.style.backgroundImage = `url(${role.image})`;
+      mole.style.backgroundSize = `${role.zoom}%`;
+      mole.style.backgroundPosition = `${role.posX}% ${role.posY}%`;
+      mole.textContent = '';
+    } else {
+      mole.style.backgroundImage = 'none';
+      mole.style.fontSize = '60px';
+      mole.style.lineHeight = '90px';
+      mole.textContent = role.emoji;
+    }
+  }
+
   function popRandomMole() {
     if (currentMoleIndex !== -1) {
       holes[currentMoleIndex].classList.remove('up', 'hit');
     }
     const index = Math.floor(Math.random() * HOLE_COUNT);
+    const roleIdx = Math.floor(Math.random() * roles.length);
     currentMoleIndex = index;
+    currentRoleIdx = roleIdx;
+    renderMole(holes[index], roleIdx);
     holes[index].classList.add('up');
 
     const upTime = randomTime(500, 1000);
@@ -142,11 +430,22 @@
     }, upTime);
   }
 
+  function showFloatScore(hole, delta) {
+    const el = document.createElement('div');
+    el.className = 'floatScore';
+    el.textContent = (delta >= 0 ? '+' : '') + delta;
+    el.style.color = delta >= 0 ? '#00b894' : '#d63031';
+    hole.appendChild(el);
+    setTimeout(() => el.remove(), 700);
+  }
+
   function whack(index, hole) {
     if (!playing) return;
     if (index === currentMoleIndex && hole.classList.contains('up')) {
-      score++;
+      const delta = roles[currentRoleIdx].score;
+      score += delta;
       scoreEl.textContent = score;
+      showFloatScore(hole, delta);
       hole.classList.add('hit');
       clearTimeout(gameInterval);
       hole.classList.remove('up');
@@ -186,6 +485,21 @@
     startBtn.disabled = false;
     messageEl.textContent = `遊戲結束！最終分數: ${score} 🎉`;
   }
+
+  applyBtn.addEventListener('click', () => {
+    setupEl.style.display = 'none';
+    gameSectionEl.style.display = 'flex';
+    startGame();
+  });
+
+  backBtn.addEventListener('click', () => {
+    playing = false;
+    clearInterval(timerInterval);
+    clearTimeout(gameInterval);
+    holes.forEach(h => h.classList.remove('up', 'hit'));
+    gameSectionEl.style.display = 'none';
+    setupEl.style.display = 'block';
+  });
 
   startBtn.addEventListener('click', startGame);
 </script>
