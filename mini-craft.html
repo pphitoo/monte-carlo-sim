@@ -137,6 +137,27 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
 (function () {
+  const overlayEl = document.getElementById('startOverlay');
+
+  function showFatalError(msg) {
+    overlayEl.innerHTML = '<h1>⚠️ 無法啟動遊戲</h1><p>' + msg + '</p>';
+  }
+
+  // 先確認 3D 引擎（Three.js，透過 CDN 載入）是否成功載入，
+  // 沒載入的話直接顯示明確的錯誤訊息，而不是讓「開始遊玩」按鈕沒反應
+  if (typeof THREE === 'undefined') {
+    showFatalError('3D 引擎（Three.js）沒有載入成功，通常是網路被擋住或封鎖了 cdn.jsdelivr.net。<br>請確認裝置有連上網路，且瀏覽器/防火牆沒有封鎖 cdn.jsdelivr.net，然後重新整理頁面再試一次。');
+    return;
+  }
+
+  try {
+    initGame();
+  } catch (err) {
+    console.error(err);
+    showFatalError('遊戲初始化時發生錯誤：' + (err && err.message ? err.message : err));
+  }
+
+  function initGame() {
   // ---------------- Block types (全部一開始就贈送給玩家) ----------------
   const BLOCK_TYPES = [
     { key: 'grass', name: '草地', color: 0x5fbf4a, icon: '🟩' },
@@ -379,6 +400,7 @@
     renderer.render(scene, camera);
   }
   animate();
+  } // end initGame
 })();
 </script>
 </body>
