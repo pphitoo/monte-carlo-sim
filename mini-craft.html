@@ -140,6 +140,39 @@
     text-align: center;
     max-width: 90%;
   }
+  #saveBar {
+    position: fixed;
+    top: 10px; right: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 20;
+  }
+  .saveBtn {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.45);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.5);
+    font-size: 0.75em;
+    text-align: center;
+  }
+  .saveBtn:active { background: rgba(0,0,0,0.65); }
+  #saveToast {
+    position: fixed;
+    top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 0.85em;
+    z-index: 30;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #saveToast.show { opacity: 1; }
   #startOverlay {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.6);
@@ -165,13 +198,21 @@
 <body>
   <div id="startOverlay">
     <h1>⛏️ 迷你建造世界 🧱</h1>
-    <p>世界無限大，會有平原、森林、沙漠、雪山、海洋等各種地形！<br>所有建築道具已經全部贈送給你了（包含木窗戶🪟、電燈💡），放置也沒有任何限制。<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。<br>想蓋房子的話：先點選房子種類，瞄準地面後按綠色按鈕，馬上就會蓋好一整棟房子！</p>
+    <p>世界無限大，會有平原、森林、沙漠、雪山、海洋等各種地形！<br>所有建築道具已經全部贈送給你了（包含窗戶🪟🔳、電燈💡），放置也沒有任何限制。<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。<br>想蓋房子的話：先點選房子種類，瞄準地面後按綠色按鈕，馬上就會蓋好一整棟房子！<br>右上角可以存檔／讀取，建造過程也會自動存檔，下次打開會接續上次的進度。</p>
     <button id="startBtn">開始遊玩</button>
   </div>
 
   <div id="canvasWrap"></div>
   <div id="hotbar"></div>
   <div id="houseBar"></div>
+  <div id="saveBar">
+    <div class="saveBtn" id="saveBtn">💾 存檔</div>
+    <div class="saveBtn" id="loadBtn">📂 讀取</div>
+    <div class="saveBtn" id="exportBtn">⬇️ 匯出檔案</div>
+    <div class="saveBtn" id="importBtn">⬆️ 匯入檔案</div>
+    <input type="file" id="importInput" accept="application/json" style="display:none">
+  </div>
+  <div id="saveToast"></div>
   <div id="lookZone"></div>
   <div id="dpad">
     <div class="dpadBtn" id="dpadForward">▲</div>
@@ -547,11 +588,13 @@
   function addBlock(x, y, z, typeOverride) {
     setModification(x, y, z, typeOverride || BLOCK_TYPES[selectedBlockIdx].key);
     rebuildChunkContaining(x, z);
+    scheduleAutoSave();
   }
 
   function removeBlockAt(x, y, z) {
     setModification(x, y, z, null);
     rebuildChunkContaining(x, z);
+    scheduleAutoSave();
   }
 
   // ---------------- 房子藍圖：真正的建築材料（木頭、窗戶、電燈…）組成的完整房子 ----------------
@@ -609,6 +652,105 @@
       const [cx, cz] = key.split(',').map(Number);
       buildChunk(cx, cz);
     });
+    scheduleAutoSave();
+  }
+
+  // ---------------- 存檔 / 讀取 ----------------
+  const SAVE_KEY = 'miniCraftSave';
+  let autoSaveTimer = null;
+
+  function serializeSave() {
+    const columns = [];
+    modifiedColumns.forEach((yMap, colKey) => {
+      columns.push([colKey, Array.from(yMap.entries())]);
+    });
+    return {
+      version: 1,
+      columns,
+      player: { x: player.x, z: player.z, yaw: player.yaw },
+    };
+  }
+
+  function applySave(data) {
+    modifiedColumns.clear();
+    (data.columns || []).forEach(([colKey, entries]) => {
+      modifiedColumns.set(colKey, new Map(entries));
+    });
+    if (data.player) {
+      player.x = data.player.x || 0;
+      player.z = data.player.z || 0;
+      player.yaw = data.player.yaw || 0;
+    }
+    // 重新載入畫面上的區塊，讓存檔內容顯示出來
+    Array.from(chunks.keys()).forEach(disposeChunk);
+    updateChunks(player.x, player.z);
+    player.footY = Math.max(0, columnHeight(Math.round(player.x), Math.round(player.z)) + 1);
+    player.fallVelocity = 0;
+    updateCamera();
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById('saveToast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  function saveToLocalStorage(silent) {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(serializeSave()));
+      if (!silent) showToast('💾 已存檔');
+    } catch (e) {
+      if (!silent) showToast('存檔失敗：' + e.message);
+    }
+  }
+
+  function scheduleAutoSave() {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => saveToLocalStorage(true), 1200);
+  }
+
+  function loadFromLocalStorage(silent) {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) {
+      if (!silent) showToast('沒有找到存檔');
+      return false;
+    }
+    try {
+      applySave(JSON.parse(raw));
+      if (!silent) showToast('📂 已讀取存檔');
+      return true;
+    } catch (e) {
+      if (!silent) showToast('讀取失敗：' + e.message);
+      return false;
+    }
+  }
+
+  function exportSaveFile() {
+    const blob = new Blob([JSON.stringify(serializeSave())], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '迷你建造世界存檔.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('⬇️ 已匯出存檔檔案');
+  }
+
+  function importSaveFile(file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        applySave(JSON.parse(ev.target.result));
+        showToast('⬆️ 已匯入存檔');
+      } catch (e) {
+        showToast('匯入失敗：檔案格式錯誤');
+      }
+    };
+    reader.readAsText(file);
   }
 
   // ---------------- Player (第一人稱，貼地移動 + 跳躍，世界無限大可以一直走) ----------------
@@ -624,6 +766,7 @@
   };
   updateChunks(player.x, player.z); // 先載入出生點附近的區塊
   camera.position.set(player.x, player.footY + player.eyeHeight, player.z);
+  loadFromLocalStorage(true); // 如果之前有存檔，自動讀取上次的進度（不彈提示，安靜載入）
 
   // 每一幀都要呼叫：讓玩家貼著腳下的地板/地形走，而不是整欄最高的方塊（例如屋頂）
   function updatePlayerGround() {
@@ -770,6 +913,18 @@
   // ---------------- Start overlay ----------------
   document.getElementById('startBtn').addEventListener('click', () => {
     document.getElementById('startOverlay').style.display = 'none';
+  });
+
+  // ---------------- 存檔按鈕 ----------------
+  document.getElementById('saveBtn').addEventListener('pointerdown', () => saveToLocalStorage(false));
+  document.getElementById('loadBtn').addEventListener('pointerdown', () => loadFromLocalStorage(false));
+  document.getElementById('exportBtn').addEventListener('pointerdown', () => exportSaveFile());
+  const importInput = document.getElementById('importInput');
+  document.getElementById('importBtn').addEventListener('pointerdown', () => importInput.click());
+  importInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) importSaveFile(file);
+    importInput.value = '';
   });
 
   // ---------------- Resize ----------------
