@@ -230,14 +230,17 @@
     { key: 'gold',  name: '金磚', color: 0xffd700, icon: '🟡' },
     { key: 'snow',  name: '雪',   color: 0xf5f9ff, icon: '⚪' },
     { key: 'water', name: '水',   color: 0x3a7bd5, icon: '💧' },
-    { key: 'window',name: '木窗戶', color: 0xcfe8f0, icon: '🪟' },
+    { key: 'window_long', name: '長窗（中間橫框）', color: 0xcfe8f0, icon: '🪟' },
+    { key: 'window_grid', name: '田字窗', color: 0xcfe8f0, icon: '🔳' },
     { key: 'light', name: '電燈', color: 0xfff2b0, icon: '💡' },
   ];
 
-  // 兩種一鍵蓋好的房屋（不是地形方塊，是真正的建築材料組成的完整房子）
+  // 四種一鍵蓋好的房屋（不是地形方塊，是真正的建築材料組成的完整房子）
   const HOUSE_PRESETS = [
-    { name: '木屋', icon: '🏠', wallType: 'wood', roofType: 'brick' },
-    { name: '石屋', icon: '🏡', wallType: 'stone', roofType: 'gold' },
+    { name: '木屋',   icon: '🏠', wallType: 'wood',  roofType: 'brick', width: 5, depth: 5, height: 3, windowType: 'window_long' },
+    { name: '石屋',   icon: '🏡', wallType: 'stone', roofType: 'gold',  width: 5, depth: 5, height: 3, windowType: 'window_grid' },
+    { name: '大別墅', icon: '🏘️', wallType: 'brick', roofType: 'wood',  width: 7, depth: 7, height: 4, windowType: 'window_grid' },
+    { name: '玻璃屋', icon: '🏚️', wallType: 'glass', roofType: 'stone', width: 5, depth: 5, height: 3, windowType: 'window_long' },
   ];
   let buildMode = 'block'; // 'block' = 放單一方塊, 'house' = 放整棟房子
   let selectedHouseIdx = 0;
@@ -296,13 +299,44 @@
 
   // ---------------- 無限世界：地形材質 ----------------
   const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+  // 畫出「木框窗戶」貼圖：長窗＝中間一條橫框，田字窗＝十字窗框分成四格
+  function makeWindowTexture(style) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#7a4a24'; // 木框顏色
+    ctx.fillRect(0, 0, size, size);
+    const inset = 6;
+    ctx.fillStyle = '#bfe4f0'; // 玻璃顏色
+    ctx.fillRect(inset, inset, size - inset * 2, size - inset * 2);
+    ctx.fillStyle = '#7a4a24';
+    const bar = 5;
+    if (style === 'long') {
+      // 立起來的長方形窗，中間一條橫框
+      ctx.fillRect(inset, size / 2 - bar / 2, size - inset * 2, bar);
+    } else {
+      // 田字窗：十字窗框分成四格
+      ctx.fillRect(inset, size / 2 - bar / 2, size - inset * 2, bar);
+      ctx.fillRect(size / 2 - bar / 2, inset, bar, size - inset * 2);
+    }
+    return new THREE.CanvasTexture(canvas);
+  }
+
   const materials = {};
   BLOCK_TYPES.forEach(b => {
-    const isTransparent = b.key === 'glass' || b.key === 'water' || b.key === 'window';
+    if (b.key === 'window_long' || b.key === 'window_grid') {
+      materials[b.key] = new THREE.MeshLambertMaterial({
+        map: makeWindowTexture(b.key === 'window_long' ? 'long' : 'grid'),
+      });
+      return;
+    }
+    const isTransparent = b.key === 'glass' || b.key === 'water';
     materials[b.key] = new THREE.MeshLambertMaterial({
       color: b.color,
       transparent: isTransparent,
-      opacity: b.key === 'glass' ? 0.55 : (b.key === 'water' ? 0.6 : (b.key === 'window' ? 0.55 : 1)),
+      opacity: b.key === 'glass' ? 0.55 : (b.key === 'water' ? 0.6 : 1),
       emissive: b.key === 'light' ? 0xfff2b0 : 0x000000,
       emissiveIntensity: b.key === 'light' ? 0.9 : 0,
     });
@@ -394,6 +428,16 @@
     const overrides = modifiedColumns.get(x + ',' + z);
     if (overrides) overrides.forEach((_, oy) => { if (oy + 1 > scanTop) scanTop = oy + 1; });
     for (let y = scanTop; y >= 0; y--) {
+      const t = getBlockTypeAt(x, y, z);
+      if (t && t !== 'water') return y;
+    }
+    return -1;
+  }
+
+  // 從玩家目前腳的高度「往下」找站立面（只允許一次自動爬升1格），
+  // 這樣走進房子裡站在地板上時，不會誤判成站在遠處更高的屋頂上
+  function localGroundTop(x, z, fromY) {
+    for (let y = fromY; y >= fromY - 40; y--) {
       const t = getBlockTypeAt(x, y, z);
       if (t && t !== 'water') return y;
     }
@@ -512,8 +556,9 @@
 
   // ---------------- 房子藍圖：真正的建築材料（木頭、窗戶、電燈…）組成的完整房子 ----------------
   function generateHouseBlocks(preset) {
-    const W = 5, D = 5, H = 3; // 寬 / 深 / 牆高
+    const W = preset.width || 5, D = preset.depth || 5, H = preset.height || 3;
     const hw = Math.floor(W / 2), hd = Math.floor(D / 2);
+    const windowType = preset.windowType || 'window_long';
     const blocks = [];
 
     // 地板
@@ -521,18 +566,20 @@
       for (let z = -hd; z <= hd; z++) blocks.push({ dx: x, dy: 0, dz: z, type: 'stone' });
     }
 
-    // 牆壁（含門口與窗戶）
+    // 牆壁（含門口與窗戶），窗戶開在牆面中間高度
+    const windowY = Math.max(2, Math.floor(H / 2) + 1);
     for (let y = 1; y <= H; y++) {
       for (let x = -hw; x <= hw; x++) {
         for (let z = -hd; z <= hd; z++) {
           const isWall = (x === -hw || x === hw || z === -hd || z === hd);
           if (!isWall) continue;
           if (z === hd && x === 0 && y <= 2) continue; // 前面留門口
-          const isSideWindowSpot = (y === 2) && (
+          const isSideWindowSpot = (y === windowY) && (
             ((x === -hw || x === hw) && z === 0) ||
-            (z === -hd && (x === -1 || x === 1))
+            (z === -hd && (x === -1 || x === 1)) ||
+            (W > 5 && (x === -hw || x === hw) && Math.abs(z) === Math.floor(hd / 2))
           );
-          blocks.push({ dx: x, dy: y, dz: z, type: isSideWindowSpot ? 'window' : preset.wallType });
+          blocks.push({ dx: x, dy: y, dz: z, type: isSideWindowSpot ? windowType : preset.wallType });
         }
       }
     }
@@ -544,6 +591,7 @@
 
     // 室內電燈
     blocks.push({ dx: 0, dy: H, dz: 0, type: 'light' });
+    if (W > 5) blocks.push({ dx: 0, dy: H, dz: Math.floor(hd / 2), type: 'light' }); // 大房子多加一盞燈
 
     return blocks;
   }
@@ -564,19 +612,41 @@
   }
 
   // ---------------- Player (第一人稱，貼地移動 + 跳躍，世界無限大可以一直走) ----------------
+  const STEP_UP = 1; // 走路時最多自動爬升幾格（避免走進屋子被誤判彈上屋頂）
   const player = {
     x: 0, z: 0, yaw: 0, pitch: -0.1,
     eyeHeight: 1.7,
+    footY: Math.max(0, columnHeight(0, 0) + 1),
+    fallVelocity: 0,
     jumpOffset: 0,
     jumpVelocity: 0,
     isJumping: false,
   };
   updateChunks(player.x, player.z); // 先載入出生點附近的區塊
-  camera.position.set(player.x, columnHeight(0, 0) + 1 + player.eyeHeight, player.z);
+  camera.position.set(player.x, player.footY + player.eyeHeight, player.z);
+
+  // 每一幀都要呼叫：讓玩家貼著腳下的地板/地形走，而不是整欄最高的方塊（例如屋頂）
+  function updatePlayerGround() {
+    const rx = Math.round(player.x), rz = Math.round(player.z);
+    const groundTop = localGroundTop(rx, rz, Math.floor(player.footY) + STEP_UP);
+    const target = groundTop + 1;
+    if (target >= player.footY) {
+      // 走上樓梯/爬升1格：直接貼齊
+      player.footY = target;
+      player.fallVelocity = 0;
+    } else {
+      // 腳下是空的（例如走出邊緣、掉進坑洞）：用重力自然下墜，而不是瞬間傳送
+      player.fallVelocity -= 0.02;
+      player.footY += player.fallVelocity;
+      if (player.footY <= target) {
+        player.footY = target;
+        player.fallVelocity = 0;
+      }
+    }
+  }
 
   function updateCamera() {
-    const groundH = Math.max(0, columnHeight(Math.round(player.x), Math.round(player.z)) + 1);
-    camera.position.set(player.x, groundH + player.eyeHeight + player.jumpOffset, player.z);
+    camera.position.set(player.x, player.footY + player.eyeHeight + player.jumpOffset, player.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw;
     camera.rotation.x = player.pitch;
@@ -728,6 +798,8 @@
       player.z = player.z - forward.z * moveY * speed + right.z * moveX * speed;
       updateChunks(player.x, player.z); // 世界無限大：邊走邊載入新區塊
     }
+
+    updatePlayerGround(); // 每一幀都要更新，站著不動時掉落/貼地才會正常
 
     if (player.isJumping) {
       player.jumpOffset += player.jumpVelocity;
