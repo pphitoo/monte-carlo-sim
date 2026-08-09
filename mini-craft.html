@@ -41,6 +41,35 @@
     box-shadow: 0 0 8px 2px #fff;
   }
 
+  #houseBar {
+    position: fixed;
+    top: 66px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    background: rgba(0,0,0,0.35);
+    padding: 6px 10px;
+    border-radius: 14px;
+    z-index: 10;
+    align-items: center;
+  }
+  .houseSlot {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 2px solid rgba(255,255,255,0.4);
+    color: white;
+    font-size: 0.8em;
+  }
+  .houseSlot .icon { font-size: 20px; }
+  .houseSlot.selected {
+    border-color: #00e6a8;
+    box-shadow: 0 0 8px 2px rgba(0,230,168,0.8);
+    background: rgba(0,184,148,0.35);
+  }
+
   #dpad {
     position: fixed;
     left: 20px; bottom: 20px;
@@ -136,12 +165,13 @@
 <body>
   <div id="startOverlay">
     <h1>⛏️ 迷你建造世界 🧱</h1>
-    <p>世界無限大，會有平原、森林、沙漠、雪山、海洋等各種地形！<br>所有建築道具已經全部贈送給你了，放置也沒有任何限制。<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。</p>
+    <p>世界無限大，會有平原、森林、沙漠、雪山、海洋等各種地形！<br>所有建築道具已經全部贈送給你了（包含木窗戶🪟、電燈💡），放置也沒有任何限制。<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。<br>想蓋房子的話：先點選房子種類，瞄準地面後按綠色按鈕，馬上就會蓋好一整棟房子！</p>
     <button id="startBtn">開始遊玩</button>
   </div>
 
   <div id="canvasWrap"></div>
   <div id="hotbar"></div>
+  <div id="houseBar"></div>
   <div id="lookZone"></div>
   <div id="dpad">
     <div class="dpadBtn" id="dpadForward">▲</div>
@@ -153,7 +183,7 @@
   <div id="actionBtns">
     <div class="actionBtn" id="placeBtn">🧱</div>
   </div>
-  <div id="hint">左下按鍵移動・菱形跳躍・右邊拖曳看方向・輕點畫面上的方塊即可破壞・🧱放置</div>
+  <div id="hint">左下按鍵移動・菱形跳躍・右邊拖曳看方向・輕點方塊破壞・🧱放置／選好房子後按🧱秒蓋一棟房子</div>
 
 <script>
 /**
@@ -200,7 +230,17 @@
     { key: 'gold',  name: '金磚', color: 0xffd700, icon: '🟡' },
     { key: 'snow',  name: '雪',   color: 0xf5f9ff, icon: '⚪' },
     { key: 'water', name: '水',   color: 0x3a7bd5, icon: '💧' },
+    { key: 'window',name: '木窗戶', color: 0xcfe8f0, icon: '🪟' },
+    { key: 'light', name: '電燈', color: 0xfff2b0, icon: '💡' },
   ];
+
+  // 兩種一鍵蓋好的房屋（不是地形方塊，是真正的建築材料組成的完整房子）
+  const HOUSE_PRESETS = [
+    { name: '木屋', icon: '🏠', wallType: 'wood', roofType: 'brick' },
+    { name: '石屋', icon: '🏡', wallType: 'stone', roofType: 'gold' },
+  ];
+  let buildMode = 'block'; // 'block' = 放單一方塊, 'house' = 放整棟房子
+  let selectedHouseIdx = 0;
 
   let selectedBlockIdx = 0;
 
@@ -211,10 +251,28 @@
     slot.textContent = b.icon;
     slot.addEventListener('pointerdown', () => {
       selectedBlockIdx = i;
+      buildMode = 'block'; // 選一般方塊時取消房子模式
       document.querySelectorAll('.hotslot').forEach(s => s.classList.remove('selected'));
+      document.querySelectorAll('.houseSlot').forEach(s => s.classList.remove('selected'));
       slot.classList.add('selected');
     });
     hotbarEl.appendChild(slot);
+  });
+
+  // 房子選單：選好之後按綠色放置鍵，1 秒內直接蓋好一整棟房子
+  const houseBarEl = document.getElementById('houseBar');
+  HOUSE_PRESETS.forEach((preset, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'houseSlot';
+    slot.innerHTML = '<span class="icon">' + preset.icon + '</span><span>' + preset.name + '</span>';
+    slot.addEventListener('pointerdown', () => {
+      buildMode = 'house';
+      selectedHouseIdx = i;
+      document.querySelectorAll('.hotslot').forEach(s => s.classList.remove('selected'));
+      document.querySelectorAll('.houseSlot').forEach(s => s.classList.remove('selected'));
+      slot.classList.add('selected');
+    });
+    houseBarEl.appendChild(slot);
   });
 
   // ---------------- Three.js setup ----------------
@@ -240,10 +298,13 @@
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const materials = {};
   BLOCK_TYPES.forEach(b => {
+    const isTransparent = b.key === 'glass' || b.key === 'water' || b.key === 'window';
     materials[b.key] = new THREE.MeshLambertMaterial({
       color: b.color,
-      transparent: b.key === 'glass' || b.key === 'water',
-      opacity: b.key === 'glass' ? 0.55 : (b.key === 'water' ? 0.6 : 1),
+      transparent: isTransparent,
+      opacity: b.key === 'glass' ? 0.55 : (b.key === 'water' ? 0.6 : (b.key === 'window' ? 0.55 : 1)),
+      emissive: b.key === 'light' ? 0xfff2b0 : 0x000000,
+      emissiveIntensity: b.key === 'light' ? 0.9 : 0,
     });
   });
 
@@ -383,6 +444,7 @@
     }
 
     const meshesByType = new Map();
+    const lights = [];
     byType.forEach((positions, type) => {
       const mesh = new THREE.InstancedMesh(geometry, materials[type], positions.length);
       positions.forEach((p, i) => {
@@ -394,15 +456,26 @@
       mesh.userData.positions = positions;
       scene.add(mesh);
       meshesByType.set(type, { mesh, positions });
+
+      // 電燈方塊要真的會發光、照亮周圍
+      if (type === 'light') {
+        positions.forEach(p => {
+          const light = new THREE.PointLight(0xfff2b0, 1.1, 9);
+          light.position.set(p.x + 0.5, p.y + 0.6, p.z + 0.5);
+          scene.add(light);
+          lights.push(light);
+        });
+      }
     });
 
-    chunks.set(key, { cx, cz, meshesByType });
+    chunks.set(key, { cx, cz, meshesByType, lights });
   }
 
   function disposeChunk(key) {
     const chunk = chunks.get(key);
     if (!chunk) return;
     chunk.meshesByType.forEach(({ mesh }) => scene.remove(mesh));
+    chunk.lights.forEach(light => scene.remove(light));
     chunks.delete(key);
   }
 
@@ -427,14 +500,67 @@
     chunks.forEach((_, key) => { if (!needed.has(key)) disposeChunk(key); });
   }
 
-  function addBlock(x, y, z) {
-    setModification(x, y, z, BLOCK_TYPES[selectedBlockIdx].key);
+  function addBlock(x, y, z, typeOverride) {
+    setModification(x, y, z, typeOverride || BLOCK_TYPES[selectedBlockIdx].key);
     rebuildChunkContaining(x, z);
   }
 
   function removeBlockAt(x, y, z) {
     setModification(x, y, z, null);
     rebuildChunkContaining(x, z);
+  }
+
+  // ---------------- 房子藍圖：真正的建築材料（木頭、窗戶、電燈…）組成的完整房子 ----------------
+  function generateHouseBlocks(preset) {
+    const W = 5, D = 5, H = 3; // 寬 / 深 / 牆高
+    const hw = Math.floor(W / 2), hd = Math.floor(D / 2);
+    const blocks = [];
+
+    // 地板
+    for (let x = -hw; x <= hw; x++) {
+      for (let z = -hd; z <= hd; z++) blocks.push({ dx: x, dy: 0, dz: z, type: 'stone' });
+    }
+
+    // 牆壁（含門口與窗戶）
+    for (let y = 1; y <= H; y++) {
+      for (let x = -hw; x <= hw; x++) {
+        for (let z = -hd; z <= hd; z++) {
+          const isWall = (x === -hw || x === hw || z === -hd || z === hd);
+          if (!isWall) continue;
+          if (z === hd && x === 0 && y <= 2) continue; // 前面留門口
+          const isSideWindowSpot = (y === 2) && (
+            ((x === -hw || x === hw) && z === 0) ||
+            (z === -hd && (x === -1 || x === 1))
+          );
+          blocks.push({ dx: x, dy: y, dz: z, type: isSideWindowSpot ? 'window' : preset.wallType });
+        }
+      }
+    }
+
+    // 屋頂
+    for (let x = -hw; x <= hw; x++) {
+      for (let z = -hd; z <= hd; z++) blocks.push({ dx: x, dy: H + 1, dz: z, type: preset.roofType });
+    }
+
+    // 室內電燈
+    blocks.push({ dx: 0, dy: H, dz: 0, type: 'light' });
+
+    return blocks;
+  }
+
+  // 一次放進一整棟房子，只重建被影響到的區塊，做到「幾乎瞬間蓋好」
+  function placeStructure(anchorX, anchorY, anchorZ, blocks) {
+    const affectedChunks = new Set();
+    blocks.forEach(b => {
+      const x = anchorX + b.dx, y = anchorY + b.dy, z = anchorZ + b.dz;
+      setModification(x, y, z, b.type);
+      affectedChunks.add(Math.floor(x / CHUNK_SIZE) + ',' + Math.floor(z / CHUNK_SIZE));
+    });
+    affectedChunks.forEach(key => {
+      disposeChunk(key);
+      const [cx, cz] = key.split(',').map(Number);
+      buildChunk(cx, cz);
+    });
   }
 
   // ---------------- Player (第一人稱，貼地移動 + 跳躍，世界無限大可以一直走) ----------------
@@ -562,7 +688,13 @@
     const x = Math.round(p.x + hit.face.normal.x);
     const y = Math.round(p.y + hit.face.normal.y);
     const z = Math.round(p.z + hit.face.normal.z);
-    addBlock(x, y, z);
+
+    if (buildMode === 'house') {
+      const preset = HOUSE_PRESETS[selectedHouseIdx];
+      placeStructure(x, y, z, generateHouseBlocks(preset));
+    } else {
+      addBlock(x, y, z);
+    }
   });
 
   // ---------------- Start overlay ----------------
