@@ -120,7 +120,7 @@
 <body>
   <div id="startOverlay">
     <h1>⛏️ 迷你建造世界 🧱</h1>
-    <p>所有建築道具已經全部贈送給你了！<br>左邊搖桿移動、右邊拖曳看方向。<br>下方按鈕：破壞 / 放置方塊，上方選擇要放的方塊種類。</p>
+    <p>所有建築道具已經全部贈送給你了！<br>左邊搖桿移動、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，右下角按鈕放置方塊，上方選擇要放的方塊種類。</p>
     <button id="startBtn">開始遊玩</button>
   </div>
 
@@ -129,10 +129,9 @@
   <div id="lookZone"></div>
   <div id="joystick"><div id="joystickKnob"></div></div>
   <div id="actionBtns">
-    <div class="actionBtn" id="breakBtn">⛏️</div>
     <div class="actionBtn" id="placeBtn">🧱</div>
   </div>
-  <div id="hint">左邊搖桿移動・右邊拖曳看方向・⛏️破壞　🧱放置</div>
+  <div id="hint">左邊搖桿移動・右邊拖曳看方向・輕點畫面上的方塊即可破壞・🧱放置</div>
 
 <script>
 /**
@@ -331,13 +330,19 @@
     if (e.pointerId === joyTouchId) resetJoystick();
   });
 
-  // ---------------- Look (拖曳視角) ----------------
+  // ---------------- Look (拖曳視角) + 點一下破壞方塊 ----------------
   const lookZone = document.getElementById('lookZone');
   let lookTouchId = null;
   let lastLookX = 0, lastLookY = 0;
+  let lookStartX = 0, lookStartY = 0, lookStartTime = 0;
+  const TAP_MAX_MOVE = 12;   // 移動超過這個距離就不算「點一下」，當作拖曳看方向
+  const TAP_MAX_TIME = 350;  // 按住超過這個時間（毫秒）也不算「點一下」
+
   lookZone.addEventListener('pointerdown', (e) => {
     lookTouchId = e.pointerId;
     lastLookX = e.clientX; lastLookY = e.clientY;
+    lookStartX = e.clientX; lookStartY = e.clientY;
+    lookStartTime = performance.now();
   });
   window.addEventListener('pointermove', (e) => {
     if (e.pointerId !== lookTouchId) return;
@@ -349,10 +354,16 @@
     player.pitch = Math.max(-1.3, Math.min(1.3, player.pitch));
   });
   window.addEventListener('pointerup', (e) => {
-    if (e.pointerId === lookTouchId) lookTouchId = null;
+    if (e.pointerId !== lookTouchId) return;
+    const moved = Math.hypot(e.clientX - lookStartX, e.clientY - lookStartY);
+    const elapsed = performance.now() - lookStartTime;
+    if (moved <= TAP_MAX_MOVE && elapsed <= TAP_MAX_TIME) {
+      breakBlockAtScreenPoint(e.clientX, e.clientY);
+    }
+    lookTouchId = null;
   });
 
-  // ---------------- Raycast target (準心對到的方塊面) ----------------
+  // ---------------- Raycast target (準心對到的方塊面，用於放置) ----------------
   const raycaster = new THREE.Raycaster();
   function getTargetedFace() {
     raycaster.set(camera.position, camera.getWorldDirection(new THREE.Vector3()));
@@ -363,12 +374,20 @@
     return hits[0];
   }
 
-  document.getElementById('breakBtn').addEventListener('pointerdown', () => {
-    const hit = getTargetedFace();
-    if (!hit) return;
-    const p = hit.object.position;
+  // 點一下畫面上的方塊：那個方塊就會消失
+  function breakBlockAtScreenPoint(clientX, clientY) {
+    const ndc = new THREE.Vector2(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const meshes = [];
+    voxels.forEach(v => meshes.push(v.mesh));
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0 || hits[0].distance > 8) return;
+    const p = hits[0].object.position;
     removeBlockAt(Math.round(p.x - 0.5), Math.round(p.y - 0.5), Math.round(p.z - 0.5));
-  });
+  }
 
   document.getElementById('placeBtn').addEventListener('pointerdown', () => {
     const hit = getTargetedFace();
