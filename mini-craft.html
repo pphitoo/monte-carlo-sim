@@ -41,22 +41,38 @@
     box-shadow: 0 0 8px 2px #fff;
   }
 
-  #joystick {
+  #dpad {
     position: fixed;
-    left: 24px; bottom: 24px;
-    width: 110px; height: 110px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.25);
-    border: 2px solid rgba(255,255,255,0.5);
+    left: 20px; bottom: 20px;
+    width: 190px; height: 190px;
     z-index: 10;
   }
-  #joystickKnob {
+  .dpadBtn {
     position: absolute;
-    left: 30px; top: 30px;
-    width: 50px; height: 50px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.7);
+    width: 56px; height: 56px;
+    background: rgba(255,255,255,0.3);
+    border: 2px solid rgba(255,255,255,0.6);
+    border-radius: 10px;
+    color: white;
+    font-size: 24px;
+    display: flex; align-items: center; justify-content: center;
   }
+  .dpadBtn:active, .dpadBtn.pressed { background: rgba(255,255,255,0.6); }
+  #dpadForward { left: 67px; top: 0; }
+  #dpadBack    { left: 67px; top: 134px; }
+  #dpadLeft    { left: 0;   top: 67px; }
+  #dpadRight   { left: 134px; top: 67px; }
+  #dpadJump {
+    position: absolute;
+    left: 67px; top: 67px;
+    width: 56px; height: 56px;
+    background: rgba(0,184,148,0.85);
+    border: 2px solid rgba(255,255,255,0.8);
+    transform: rotate(45deg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #dpadJump:active, #dpadJump.pressed { background: rgba(0,184,148,1); }
+  #dpadJump span { transform: rotate(-45deg); color: white; font-size: 20px; }
 
   #actionBtns {
     position: fixed;
@@ -69,13 +85,13 @@
   .actionBtn {
     width: 74px; height: 74px;
     border-radius: 50%;
-    background: rgba(0,0,0,0.4);
+    background: rgba(0,184,148,0.85);
     color: white;
-    border: 2px solid rgba(255,255,255,0.5);
+    border: 2px solid rgba(255,255,255,0.7);
     font-size: 28px;
     display: flex; align-items: center; justify-content: center;
   }
-  .actionBtn:active { background: rgba(0,0,0,0.6); }
+  .actionBtn:active { background: rgba(0,184,148,1); }
 
   #lookZone {
     position: fixed;
@@ -120,18 +136,24 @@
 <body>
   <div id="startOverlay">
     <h1>⛏️ 迷你建造世界 🧱</h1>
-    <p>所有建築道具已經全部贈送給你了！<br>左邊搖桿移動、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，右下角按鈕放置方塊，上方選擇要放的方塊種類。</p>
+    <p>所有建築道具已經全部贈送給你了！<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。</p>
     <button id="startBtn">開始遊玩</button>
   </div>
 
   <div id="canvasWrap"></div>
   <div id="hotbar"></div>
   <div id="lookZone"></div>
-  <div id="joystick"><div id="joystickKnob"></div></div>
+  <div id="dpad">
+    <div class="dpadBtn" id="dpadForward">▲</div>
+    <div class="dpadBtn" id="dpadBack">▼</div>
+    <div class="dpadBtn" id="dpadLeft">◀</div>
+    <div class="dpadBtn" id="dpadRight">▶</div>
+    <div id="dpadJump"><span>跳</span></div>
+  </div>
   <div id="actionBtns">
     <div class="actionBtn" id="placeBtn">🧱</div>
   </div>
-  <div id="hint">左邊搖桿移動・右邊拖曳看方向・輕點畫面上的方塊即可破壞・🧱放置</div>
+  <div id="hint">左下按鍵移動・菱形跳躍・右邊拖曳看方向・輕點畫面上的方塊即可破壞・🧱放置</div>
 
 <script>
 /**
@@ -197,7 +219,7 @@
   const canvasWrap = document.getElementById('canvasWrap');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x7ec0ee);
-  scene.fog = new THREE.Fog(0x7ec0ee, 20, 55);
+  scene.fog = new THREE.Fog(0x7ec0ee, 30, 80);
 
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 
@@ -213,7 +235,7 @@
   scene.add(sun);
 
   // ---------------- Small voxel world ----------------
-  const WORLD_SIZE = 12; // 世界不大：12x12
+  const WORLD_SIZE = 20; // 世界大一點：20x20
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const materials = {};
   BLOCK_TYPES.forEach(b => {
@@ -275,59 +297,58 @@
   }
   addBlock(treeX, baseY + 4, treeZ, 'leaves');
 
-  // ---------------- Player (第一人稱，簡易貼地移動) ----------------
+  // ---------------- Player (第一人稱，貼地移動 + 跳躍) ----------------
   const player = {
     x: WORLD_SIZE / 2, z: -3, yaw: 0, pitch: -0.1,
     eyeHeight: 1.7,
+    jumpOffset: 0,
+    jumpVelocity: 0,
+    isJumping: false,
   };
   camera.position.set(player.x, player.eyeHeight, player.z);
 
   function updateCamera() {
     const groundH = Math.max(0, columnHeight(Math.round(player.x), Math.round(player.z)) + 1);
-    camera.position.set(player.x, groundH + player.eyeHeight, player.z);
+    camera.position.set(player.x, groundH + player.eyeHeight + player.jumpOffset, player.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw;
     camera.rotation.x = player.pitch;
   }
   updateCamera();
 
-  // ---------------- Joystick (移動) ----------------
-  const joystick = document.getElementById('joystick');
-  const knob = document.getElementById('joystickKnob');
-  let moveVec = { x: 0, y: 0 };
-  let joyTouchId = null;
+  // ---------------- 按鍵移動（前 / 後 / 左 / 右）+ 菱形跳躍鍵 ----------------
+  const moveFlags = { forward: false, back: false, left: false, right: false };
+  const JUMP_SPEED = 0.16;
+  const GRAVITY = 0.011;
 
-  function joystickPos(e) {
-    const rect = joystick.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    let dx = e.clientX - cx;
-    let dy = e.clientY - cy;
-    const max = rect.width / 2;
-    const dist = Math.min(max, Math.hypot(dx, dy));
-    const angle = Math.atan2(dy, dx);
-    dx = Math.cos(angle) * dist;
-    dy = Math.sin(angle) * dist;
-    knob.style.left = (30 + dx) + 'px';
-    knob.style.top = (30 + dy) + 'px';
-    moveVec.x = dx / max;
-    moveVec.y = dy / max;
+  function bindHoldButton(id, onDown, onUp) {
+    const el = document.getElementById(id);
+    let activeId = null;
+    el.addEventListener('pointerdown', (e) => {
+      activeId = e.pointerId;
+      el.classList.add('pressed');
+      onDown();
+    });
+    const release = (e) => {
+      if (e.pointerId !== activeId) return;
+      activeId = null;
+      el.classList.remove('pressed');
+      onUp();
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
   }
-  function resetJoystick() {
-    knob.style.left = '30px';
-    knob.style.top = '30px';
-    moveVec.x = 0; moveVec.y = 0;
-    joyTouchId = null;
-  }
-  joystick.addEventListener('pointerdown', (e) => {
-    joyTouchId = e.pointerId;
-    joystickPos(e);
-  });
-  window.addEventListener('pointermove', (e) => {
-    if (e.pointerId === joyTouchId) joystickPos(e);
-  });
-  window.addEventListener('pointerup', (e) => {
-    if (e.pointerId === joyTouchId) resetJoystick();
+
+  bindHoldButton('dpadForward', () => moveFlags.forward = true, () => moveFlags.forward = false);
+  bindHoldButton('dpadBack',    () => moveFlags.back = true,    () => moveFlags.back = false);
+  bindHoldButton('dpadLeft',    () => moveFlags.left = true,    () => moveFlags.left = false);
+  bindHoldButton('dpadRight',   () => moveFlags.right = true,   () => moveFlags.right = false);
+
+  document.getElementById('dpadJump').addEventListener('pointerdown', () => {
+    if (!player.isJumping) {
+      player.isJumping = true;
+      player.jumpVelocity = JUMP_SPEED;
+    }
   });
 
   // ---------------- Look (拖曳視角) + 點一下破壞方塊 ----------------
@@ -415,14 +436,32 @@
     requestAnimationFrame(animate);
 
     const speed = 0.08;
-    if (Math.abs(moveVec.x) > 0.05 || Math.abs(moveVec.y) > 0.05) {
+    let moveY = 0, moveX = 0;
+    if (moveFlags.forward) moveY -= 1;
+    if (moveFlags.back) moveY += 1;
+    if (moveFlags.left) moveX -= 1;
+    if (moveFlags.right) moveX += 1;
+    if (moveX !== 0 || moveY !== 0) {
+      const len = Math.hypot(moveX, moveY);
+      moveX /= len; moveY /= len;
       const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
       const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
-      const nx = player.x - forward.x * moveVec.y * speed + right.x * moveVec.x * speed;
-      const nz = player.z - forward.z * moveVec.y * speed + right.z * moveVec.x * speed;
+      const nx = player.x - forward.x * moveY * speed + right.x * moveX * speed;
+      const nz = player.z - forward.z * moveY * speed + right.z * moveX * speed;
       player.x = Math.max(0.5, Math.min(WORLD_SIZE - 0.5, nx));
       player.z = Math.max(0.5, Math.min(WORLD_SIZE - 0.5, nz));
     }
+
+    if (player.isJumping) {
+      player.jumpOffset += player.jumpVelocity;
+      player.jumpVelocity -= GRAVITY;
+      if (player.jumpOffset <= 0) {
+        player.jumpOffset = 0;
+        player.jumpVelocity = 0;
+        player.isJumping = false;
+      }
+    }
+
     updateCamera();
     renderer.render(scene, camera);
   }
