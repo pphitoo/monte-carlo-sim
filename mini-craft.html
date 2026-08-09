@@ -136,7 +136,7 @@
 <body>
   <div id="startOverlay">
     <h1>⛏️ 迷你建造世界 🧱</h1>
-    <p>所有建築道具已經全部贈送給你了！<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。</p>
+    <p>世界無限大，會有平原、森林、沙漠、雪山、海洋等各種地形！<br>所有建築道具已經全部贈送給你了，放置也沒有任何限制。<br>左下角按鍵移動、中間菱形跳躍、右邊拖曳看方向。<br>輕點畫面上的方塊即可破壞，綠色按鈕放置方塊，上方選擇要放的方塊種類。</p>
     <button id="startBtn">開始遊玩</button>
   </div>
 
@@ -198,6 +198,8 @@
     { key: 'glass', name: '玻璃', color: 0xaee3f2, icon: '🟦' },
     { key: 'brick', name: '磚塊', color: 0xb5432b, icon: '🧱' },
     { key: 'gold',  name: '金磚', color: 0xffd700, icon: '🟡' },
+    { key: 'snow',  name: '雪',   color: 0xf5f9ff, icon: '⚪' },
+    { key: 'water', name: '水',   color: 0x3a7bd5, icon: '💧' },
   ];
 
   let selectedBlockIdx = 0;
@@ -234,78 +236,217 @@
   sun.position.set(20, 30, 10);
   scene.add(sun);
 
-  // ---------------- Small voxel world ----------------
-  const WORLD_SIZE = 20; // 世界大一點：20x20
+  // ---------------- 無限世界：地形材質 ----------------
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const materials = {};
   BLOCK_TYPES.forEach(b => {
     materials[b.key] = new THREE.MeshLambertMaterial({
       color: b.color,
-      transparent: b.key === 'glass',
-      opacity: b.key === 'glass' ? 0.55 : 1,
+      transparent: b.key === 'glass' || b.key === 'water',
+      opacity: b.key === 'glass' ? 0.55 : (b.key === 'water' ? 0.6 : 1),
     });
   });
 
-  // voxels: Map "x,y,z" -> { key, mesh }
-  const voxels = new Map();
-  function keyOf(x, y, z) { return x + ',' + y + ',' + z; }
+  // ---------------- 地形產生器（真實世界常見地形：平原/森林/沙漠/雪山/海洋） ----------------
+  const SEA_LEVEL = 3;
+  const SHELL_DEPTH = 5; // 地表往下產生幾層方塊（省效能，玩家仍可任意挖到底再往下放方塊）
 
-  function addBlock(x, y, z, blockKey, silent) {
-    const k = keyOf(x, y, z);
-    if (voxels.has(k)) return;
-    const mesh = new THREE.Mesh(geometry, materials[blockKey]);
-    mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
-    scene.add(mesh);
-    voxels.set(k, { key: blockKey, mesh });
+  function hash2(x, z) {
+    const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
+    return s - Math.floor(s);
   }
 
-  function removeBlockAt(x, y, z) {
-    const k = keyOf(x, y, z);
-    const v = voxels.get(k);
-    if (!v) return;
-    scene.remove(v.mesh);
-    voxels.delete(k);
+  function terrainHeight(x, z) {
+    const h = 7
+      + 3 * Math.sin(x * 0.09) + 3 * Math.cos(z * 0.11)
+      + 2 * Math.sin((x + z) * 0.05)
+      + 1.5 * Math.sin(x * 0.23 + z * 0.17)
+      + (hash2(Math.floor(x / 3), Math.floor(z / 3)) - 0.5) * 2;
+    return Math.max(0, Math.round(h));
+  }
+
+  function biomeAt(x, z) {
+    const h = terrainHeight(x, z);
+    if (h <= SEA_LEVEL) return 'ocean';
+    if (h >= 13) return 'snow'; // 高山山頂積雪，跟現實世界一樣
+    const temp = Math.sin(x * 0.015 + 2.1) + Math.cos(z * 0.013 + 0.7);
+    const moist = Math.sin(x * 0.021 + 5.3) + Math.cos(z * 0.019 + 3.1);
+    if (temp > 0.9 && moist < -0.3) return 'desert';
+    if (temp < -0.9) return 'snow';
+    if (moist > 0.5) return 'forest';
+    return 'plains';
+  }
+
+  function topBlockOf(biome) {
+    if (biome === 'desert' || biome === 'ocean') return 'sand';
+    if (biome === 'snow') return 'snow';
+    return 'grass';
+  }
+
+  function hasTreeAt(x, z) {
+    const h = terrainHeight(x, z);
+    const biome = biomeAt(x, z);
+    if (biome !== 'forest' || h <= SEA_LEVEL) return false;
+    return hash2(x * 3.1, z * 7.7) < 0.05;
+  }
+
+  // 邏輯查詢：某座標是什麼方塊（null = 空氣），會先看玩家有沒有改過這裡
+  function getBlockTypeAt(x, y, z) {
+    const colKey = x + ',' + z;
+    const overrides = modifiedColumns.get(colKey);
+    if (overrides && overrides.has(y)) return overrides.get(y);
+
+    const h = terrainHeight(x, z);
+    const biome = biomeAt(x, z);
+
+    if (y > h) {
+      if (y <= SEA_LEVEL) return 'water';
+      if (hasTreeAt(x, z)) {
+        const baseY = h + 1;
+        if (y >= baseY && y < baseY + 3) return 'wood';
+        if (y === baseY + 3 || y === baseY + 4) return 'leaves';
+      }
+      // 相鄰欄位的樹冠可能會蓋到這一格
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (dx === 0 && dz === 0) continue;
+          const nx = x + dx, nz = z + dz;
+          if (hasTreeAt(nx, nz)) {
+            const nh = terrainHeight(nx, nz);
+            if (y === nh + 4) return 'leaves';
+          }
+        }
+      }
+      return null;
+    }
+
+    const depthFromTop = h - y;
+    if (depthFromTop > SHELL_DEPTH) return null; // 地殼以下視為空氣，玩家挖到底不會卡住
+    if (depthFromTop === 0) return topBlockOf(biome);
+    if (depthFromTop <= 2) return (biome === 'desert' || biome === 'ocean') ? 'sand' : 'dirt';
+    return 'stone';
   }
 
   function columnHeight(x, z) {
-    let h = -1;
-    for (let y = 0; y < 8; y++) {
-      if (voxels.has(keyOf(x, y, z))) h = y;
+    const h = terrainHeight(x, z);
+    let scanTop = h + 25;
+    const overrides = modifiedColumns.get(x + ',' + z);
+    if (overrides) overrides.forEach((_, oy) => { if (oy + 1 > scanTop) scanTop = oy + 1; });
+    for (let y = scanTop; y >= 0; y--) {
+      const t = getBlockTypeAt(x, y, z);
+      if (t && t !== 'water') return y;
     }
-    return h;
+    return -1;
   }
 
-  // 產生小小的起伏地形 + 一棵樹
-  for (let x = 0; x < WORLD_SIZE; x++) {
-    for (let z = 0; z < WORLD_SIZE; z++) {
-      const h = 1 + Math.round(Math.sin(x * 0.5) + Math.cos(z * 0.5)) % 2;
-      const height = Math.max(1, h);
-      for (let y = 0; y < height; y++) {
-        const key = (y === height - 1) ? 'grass' : (y === 0 ? 'stone' : 'dirt');
-        addBlock(x, y, z, key);
+  // ---------------- 玩家修改紀錄（放置/破壞都會永久記住，不受區塊載入/卸載影響） ----------------
+  // modifiedColumns: "x,z" -> Map(y -> blockKey | null(表示被挖掉))
+  const modifiedColumns = new Map();
+
+  function setModification(x, y, z, value) {
+    const colKey = x + ',' + z;
+    if (!modifiedColumns.has(colKey)) modifiedColumns.set(colKey, new Map());
+    modifiedColumns.get(colKey).set(y, value);
+  }
+
+  // ---------------- 區塊(chunk)管理：世界無限大，只渲染玩家附近的區塊 ----------------
+  const CHUNK_SIZE = 10;
+  const RENDER_RADIUS = 2; // 玩家周圍幾個區塊會被載入
+  const chunks = new Map(); // "cx,cz" -> { meshesByType: Map(type -> {mesh, positions}) }
+  const dummyObj = new THREE.Object3D();
+
+  function buildChunk(cx, cz) {
+    const key = cx + ',' + cz;
+    if (chunks.has(key)) return;
+
+    const byType = new Map();
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const x = cx * CHUNK_SIZE + lx, z = cz * CHUNK_SIZE + lz;
+        const h = terrainHeight(x, z);
+        let topY = h + 6;
+        let bottomY = Math.max(0, h - SHELL_DEPTH);
+        const overrides = modifiedColumns.get(x + ',' + z);
+        if (overrides) {
+          overrides.forEach((_, oy) => {
+            if (oy > topY) topY = oy;
+            if (oy < bottomY) bottomY = oy;
+          });
+        }
+        for (let y = bottomY; y <= topY; y++) {
+          const type = getBlockTypeAt(x, y, z); // 已包含玩家修改的覆寫
+          if (!type) continue;
+          if (!byType.has(type)) byType.set(type, []);
+          byType.get(type).push({ x, y, z });
+        }
       }
     }
-  }
-  // 一棵小樹當範例
-  const treeX = Math.floor(WORLD_SIZE / 2), treeZ = Math.floor(WORLD_SIZE / 2);
-  const baseY = columnHeight(treeX, treeZ) + 1;
-  for (let i = 0; i < 3; i++) addBlock(treeX, baseY + i, treeZ, 'wood');
-  for (let lx = -1; lx <= 1; lx++) {
-    for (let lz = -1; lz <= 1; lz++) {
-      addBlock(treeX + lx, baseY + 3, treeZ + lz, 'leaves');
-    }
-  }
-  addBlock(treeX, baseY + 4, treeZ, 'leaves');
 
-  // ---------------- Player (第一人稱，貼地移動 + 跳躍) ----------------
+    const meshesByType = new Map();
+    byType.forEach((positions, type) => {
+      const mesh = new THREE.InstancedMesh(geometry, materials[type], positions.length);
+      positions.forEach((p, i) => {
+        dummyObj.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        dummyObj.updateMatrix();
+        mesh.setMatrixAt(i, dummyObj.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.positions = positions;
+      scene.add(mesh);
+      meshesByType.set(type, { mesh, positions });
+    });
+
+    chunks.set(key, { cx, cz, meshesByType });
+  }
+
+  function disposeChunk(key) {
+    const chunk = chunks.get(key);
+    if (!chunk) return;
+    chunk.meshesByType.forEach(({ mesh }) => scene.remove(mesh));
+    chunks.delete(key);
+  }
+
+  function rebuildChunkContaining(x, z) {
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    const key = cx + ',' + cz;
+    disposeChunk(key);
+    buildChunk(cx, cz);
+  }
+
+  function updateChunks(px, pz) {
+    const pcx = Math.floor(px / CHUNK_SIZE), pcz = Math.floor(pz / CHUNK_SIZE);
+    const needed = new Set();
+    for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
+      for (let dz = -RENDER_RADIUS; dz <= RENDER_RADIUS; dz++) {
+        const cx = pcx + dx, cz = pcz + dz;
+        const key = cx + ',' + cz;
+        needed.add(key);
+        if (!chunks.has(key)) buildChunk(cx, cz);
+      }
+    }
+    chunks.forEach((_, key) => { if (!needed.has(key)) disposeChunk(key); });
+  }
+
+  function addBlock(x, y, z) {
+    setModification(x, y, z, BLOCK_TYPES[selectedBlockIdx].key);
+    rebuildChunkContaining(x, z);
+  }
+
+  function removeBlockAt(x, y, z) {
+    setModification(x, y, z, null);
+    rebuildChunkContaining(x, z);
+  }
+
+  // ---------------- Player (第一人稱，貼地移動 + 跳躍，世界無限大可以一直走) ----------------
   const player = {
-    x: WORLD_SIZE / 2, z: -3, yaw: 0, pitch: -0.1,
+    x: 0, z: 0, yaw: 0, pitch: -0.1,
     eyeHeight: 1.7,
     jumpOffset: 0,
     jumpVelocity: 0,
     isJumping: false,
   };
-  camera.position.set(player.x, player.eyeHeight, player.z);
+  updateChunks(player.x, player.z); // 先載入出生點附近的區塊
+  camera.position.set(player.x, columnHeight(0, 0) + 1 + player.eyeHeight, player.z);
 
   function updateCamera() {
     const groundH = Math.max(0, columnHeight(Math.round(player.x), Math.round(player.z)) + 1);
@@ -384,39 +525,44 @@
     lookTouchId = null;
   });
 
-  // ---------------- Raycast target (準心對到的方塊面，用於放置) ----------------
+  // ---------------- Raycast target (準心/點擊對到的方塊，區塊用 InstancedMesh 渲染) ----------------
   const raycaster = new THREE.Raycaster();
+  function collectLoadedMeshes() {
+    const meshes = [];
+    chunks.forEach(chunk => chunk.meshesByType.forEach(({ mesh }) => meshes.push(mesh)));
+    return meshes;
+  }
+
   function getTargetedFace() {
     raycaster.set(camera.position, camera.getWorldDirection(new THREE.Vector3()));
-    const meshes = [];
-    voxels.forEach(v => meshes.push(v.mesh));
-    const hits = raycaster.intersectObjects(meshes, false);
+    const hits = raycaster.intersectObjects(collectLoadedMeshes(), false);
     if (hits.length === 0 || hits[0].distance > 6) return null;
     return hits[0];
   }
 
-  // 點一下畫面上的方塊：那個方塊就會消失
+  // 點一下畫面上的方塊：那個方塊就會消失，沒有任何限制、可以無限挖
   function breakBlockAtScreenPoint(clientX, clientY) {
     const ndc = new THREE.Vector2(
       (clientX / window.innerWidth) * 2 - 1,
       -(clientY / window.innerHeight) * 2 + 1
     );
     raycaster.setFromCamera(ndc, camera);
-    const meshes = [];
-    voxels.forEach(v => meshes.push(v.mesh));
-    const hits = raycaster.intersectObjects(meshes, false);
+    const hits = raycaster.intersectObjects(collectLoadedMeshes(), false);
     if (hits.length === 0 || hits[0].distance > 8) return;
-    const p = hits[0].object.position;
-    removeBlockAt(Math.round(p.x - 0.5), Math.round(p.y - 0.5), Math.round(p.z - 0.5));
+    const hit = hits[0];
+    const p = hit.object.userData.positions[hit.instanceId];
+    removeBlockAt(p.x, p.y, p.z);
   }
 
+  // 放置方塊：沒有座標範圍限制，可以蓋到任何高度、任何地方
   document.getElementById('placeBtn').addEventListener('pointerdown', () => {
     const hit = getTargetedFace();
     if (!hit) return;
-    const p = hit.object.position.clone().add(hit.face.normal);
-    const x = Math.round(p.x - 0.5), y = Math.round(p.y - 0.5), z = Math.round(p.z - 0.5);
-    if (x < 0 || z < 0 || x >= WORLD_SIZE || z >= WORLD_SIZE || y < 0 || y > 12) return;
-    addBlock(x, y, z, BLOCK_TYPES[selectedBlockIdx].key);
+    const p = hit.object.userData.positions[hit.instanceId];
+    const x = Math.round(p.x + hit.face.normal.x);
+    const y = Math.round(p.y + hit.face.normal.y);
+    const z = Math.round(p.z + hit.face.normal.z);
+    addBlock(x, y, z);
   });
 
   // ---------------- Start overlay ----------------
@@ -446,10 +592,9 @@
       moveX /= len; moveY /= len;
       const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
       const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
-      const nx = player.x - forward.x * moveY * speed + right.x * moveX * speed;
-      const nz = player.z - forward.z * moveY * speed + right.z * moveX * speed;
-      player.x = Math.max(0.5, Math.min(WORLD_SIZE - 0.5, nx));
-      player.z = Math.max(0.5, Math.min(WORLD_SIZE - 0.5, nz));
+      player.x = player.x - forward.x * moveY * speed + right.x * moveX * speed;
+      player.z = player.z - forward.z * moveY * speed + right.z * moveX * speed;
+      updateChunks(player.x, player.z); // 世界無限大：邊走邊載入新區塊
     }
 
     if (player.isJumping) {
